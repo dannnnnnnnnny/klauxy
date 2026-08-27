@@ -6,10 +6,10 @@
 #   3. update url + sha256 below, then push to a homebrew-<name> tap repo
 #
 # Install:
-#   brew tap OWNER/tap && brew install klauxy
+#   brew tap dannnnnnnnnny/tap && brew install klauxy
 class Klauxy < Formula
   desc "Transparent Korean-to-English prompt translation for Claude Code"
-  homepage "https://github.com/OWNER/klauxy"
+  homepage "https://github.com/dannnnnnnnnny/klauxy"
   url "https://registry.npmjs.org/klauxy/-/klauxy-0.1.0.tgz"
   sha256 "REPLACE_WITH_SHA256_OF_PUBLISHED_TARBALL"
   license "MIT"

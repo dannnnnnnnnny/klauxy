@@ -25,8 +25,8 @@ Install Klauxy first. Any one of these works:
 
 ```sh
 npm install -g klauxy                       # npm
-brew tap OWNER/tap && brew install klauxy   # Homebrew
-curl -fsSL https://raw.githubusercontent.com/OWNER/klauxy/main/install.sh | sh
+brew tap dannnnnnnnnny/tap && brew install klauxy   # Homebrew
+curl -fsSL https://raw.githubusercontent.com/dannnnnnnnnny/klauxy/feat/claude-mvp/install.sh | sh
 ```
 
 Start a model server first. On Apple Silicon oMLX is the fastest; Ollama is the

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Klauxy installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/OWNER/klauxy/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/dannnnnnnnnny/klauxy/feat/claude-mvp/install.sh | sh
 #
 # Installs the published npm package globally, then hands off to `klx install`
 # which creates the claude shim and the LaunchAgent.
