@@ -5,38 +5,18 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { startAnthropicProxy } from "./anthropic-proxy.js";
-import {
-  installClaudeRouting,
-  readClaudeUpstream,
-  uninstallClaudeRouting,
-} from "./claude-settings.js";
+import { readClaudeUpstream } from "./claude-settings.js";
 import { runCommand } from "./cli.js";
 import { loadConfig } from "./config.js";
-import { diagnose } from "./doctor.js";
-import { isProxyOrigin, resolveRealClaude } from "./executable.js";
+import { isProxyOrigin } from "./executable.js";
 import { appendHistory } from "./history.js";
-import {
-  getLegacyRealClaude,
-  installShim,
-  migrateLegacyKagent,
-  removeLegacyLaunchAgent,
-  removeLegacyShims,
-  uninstallShim,
-} from "./install.js";
 import { spawnClaude } from "./launch.js";
 import { claudeEnvironment } from "./launcher-env.js";
+import { doctor, type Environment, install, uninstall } from "./lifecycle.js";
 import { klauxyPaths } from "./paths.js";
 import { createTranslator } from "./providers.js";
-import {
-  installProxyService,
-  PROXY_HOST,
-  PROXY_PORT,
-  proxyBaseUrl,
-  uninstallProxyService,
-  waitForProxy,
-} from "./proxy-service.js";
-import { installRuntime } from "./runtime-install.js";
-import { reloadHint, shellScanPaths, shellTargets } from "./shell.js";
+import { PROXY_HOST, PROXY_PORT, proxyBaseUrl, waitForProxy } from "./proxy-service.js";
+import { reloadHint, shellTargets } from "./shell.js";
 import { readState } from "./state.js";
 import { createStyle } from "./tui.js";
 
@@ -164,6 +144,18 @@ async function main(): Promise<number | undefined> {
     await runClaude(args.slice(1), home);
     return undefined;
   }
+  const environment: Environment = {
+    home,
+    projectRoot: projectRoot(),
+    node: process.execPath,
+    path: process.env.PATH ?? "",
+    platform: process.platform,
+    arch: process.arch,
+    nodeVersion: process.version,
+    detectUpstream: () => detectUpstream(klauxyPaths(home)),
+    readRealClaude: async (manifestPath: string) => (await readManifest(manifestPath)).realClaude,
+  };
+
   return runCommand(args, {
     home,
     output: console.log,
@@ -180,107 +172,9 @@ async function main(): Promise<number | undefined> {
         rl.close();
       }
     },
-    install: async () => {
-      const paths = klauxyPaths(home);
-
-      // Migration: copy legacy data to canonical paths before staging new artifacts
-      await migrateLegacyKagent(home);
-
-      // Resolve real Claude: try legacy manifest first, then PATH scan
-      let realClaude: string | null = null;
-      try {
-        realClaude = await getLegacyRealClaude(home);
-      } catch {
-        // no legacy manifest
-      }
-      if (!realClaude) {
-        try {
-          realClaude = await resolveRealClaude((process.env.PATH ?? "").split(":"), paths.shim);
-        } catch {
-          // reported downstream
-        }
-      }
-      if (!realClaude) {
-        throw new Error("could not locate the real Claude Code executable");
-      }
-
-      const root = projectRoot();
-      const installedEntry = join(paths.installDir, "dist", "index.js");
-      const upstream = await detectUpstream(paths);
-
-      // Stage: install runtime, shims, manifest, plist
-      if (root !== paths.installDir) await installRuntime(root, paths.installDir);
-      await installShim({
-        home,
-        realClaude,
-        node: process.execPath,
-        entry: installedEntry,
-        upstream,
-        rcFiles: await shellTargets(home),
-      });
-      await installProxyService({
-        path: paths.serviceFile,
-        node: process.execPath,
-        entry: installedEntry,
-        home,
-        stdout: paths.proxyLog,
-        stderr: paths.proxyErrorLog,
-      });
-
-      // Health check before proceeding
-      await waitForProxy();
-
-      // Routing
-      await installClaudeRouting(paths.claudeSettings, paths.claudeSettingsBackup, proxyBaseUrl());
-
-      // Cleanup legacy artifacts only after new service is healthy
-      await removeLegacyShims(home);
-      await removeLegacyLaunchAgent(home);
-    },
-    uninstall: async () => {
-      const paths = klauxyPaths(home);
-      await uninstallClaudeRouting(
-        paths.claudeSettings,
-        paths.claudeSettingsBackup,
-        proxyBaseUrl(),
-      );
-      await uninstallProxyService(paths.serviceFile);
-      await uninstallShim({ home, rcFiles: await shellTargets(home) });
-    },
-    doctor: async () => {
-      const paths = klauxyPaths(home);
-      const config = await loadConfig(paths.config);
-      let claude = "not found";
-      try {
-        claude = (await readManifest(paths.manifest)).realClaude;
-      } catch {
-        try {
-          claude = await resolveRealClaude((process.env.PATH ?? "").split(":"), paths.shim);
-        } catch {
-          /* reported below */
-        }
-      }
-      const shellDefinitions = await Promise.all(
-        shellScanPaths(home).map(async (path) => {
-          try {
-            return await readFile(path, "utf8");
-          } catch {
-            return "";
-          }
-        }),
-      );
-      return diagnose({
-        platform: process.platform,
-        arch: process.arch,
-        nodeVersion: process.version,
-        claude,
-        provider: config.translation.provider,
-        host: config.translation.host,
-        model: config.translation.model,
-        timeoutMs: config.translation.timeout_ms,
-        shellDefinitions,
-      });
-    },
+    install: () => install(environment),
+    uninstall: () => uninstall(environment),
+    doctor: () => doctor(environment),
   });
 }
 
