@@ -251,6 +251,128 @@ describe("discoverability", () => {
   });
 });
 
+describe("history argument validation", () => {
+  it("rejects a non-numeric --last", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(
+      await runCommand(["history", "--last", "abc"], { home, output: (line) => output.push(line) }),
+    ).toBe(1);
+    expect(output.join("\n")).toContain("Usage: klx history");
+  });
+
+  it("rejects zero and negative counts", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+
+    for (const count of ["0", "-1", "1.5"]) {
+      expect(
+        await runCommand(["history", "--last", count], { home, output: () => {} }),
+        `--last ${count}`,
+      ).toBe(1);
+    }
+  });
+
+  it("rejects --last with no value", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+
+    expect(await runCommand(["history", "--last"], { home, output: () => {} })).toBe(1);
+  });
+
+  it("rejects an unrecognised subcommand", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(
+      await runCommand(["history", "everything"], { home, output: (line) => output.push(line) }),
+    ).toBe(1);
+    expect(output.join("\n")).toContain("Usage: klx history");
+  });
+
+  it("caps output at the requested count", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    for (let index = 0; index < 3; index += 1) {
+      await appendHistory(klauxyPaths(home).history, {
+        schema: 1,
+        timestamp: new Date(Date.UTC(2026, 7, 26, 12, 0, index)).toISOString(),
+        status: "translated",
+        durationMs: 10,
+        original: `원문 ${index}`,
+        sent: `Text ${index}`,
+      });
+    }
+    const output: string[] = [];
+
+    await runCommand(["history", "--last", "2"], { home, output: (line) => output.push(line) });
+
+    const text = output.join("\n");
+    expect(text).toContain("Text 2");
+    expect(text).toContain("Text 1");
+    expect(text).not.toContain("Text 0");
+  });
+});
+
+describe("recovering from damaged local state", () => {
+  it("treats a corrupted state file as off rather than crashing", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const paths = klauxyPaths(home);
+    await mkdir(dirname(paths.state), { recursive: true });
+    await writeFile(paths.state, "{ not json", "utf8");
+    const output: string[] = [];
+
+    expect(await runCommand(["status"], { home, output: (line) => output.push(line) })).toBe(0);
+    expect(output.join("\n")).toContain("off");
+  });
+
+  it("ignores a state file with the wrong shape", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const paths = klauxyPaths(home);
+    await mkdir(dirname(paths.state), { recursive: true });
+    await writeFile(paths.state, JSON.stringify({ schema: 99, enabled: "yes" }), "utf8");
+    const output: string[] = [];
+
+    await runCommand(["status"], { home, output: (line) => output.push(line) });
+
+    expect(output.join("\n")).toContain("off");
+  });
+
+  it("falls back to defaults when the config file is unparseable", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const paths = klauxyPaths(home);
+    await mkdir(dirname(paths.config), { recursive: true });
+    await writeFile(paths.config, "this is not = valid [toml", "utf8");
+    const output: string[] = [];
+
+    expect(
+      await runCommand(["config", "get", "translation.provider"], {
+        home,
+        output: (line) => output.push(line),
+      }),
+    ).toBe(0);
+    expect(output).toEqual(["omlx"]);
+  });
+
+  it("skips malformed history lines but keeps valid ones", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const paths = klauxyPaths(home);
+    await mkdir(dirname(paths.history), { recursive: true });
+    const valid = JSON.stringify({
+      schema: 1,
+      timestamp: "2026-08-26T12:00:00.000Z",
+      status: "translated",
+      durationMs: 10,
+      original: "원문",
+      sent: "Text",
+    });
+    await writeFile(paths.history, ["{ broken", valid, "also broken"].join("\n"), "utf8");
+    const output: string[] = [];
+
+    await runCommand(["history"], { home, output: (line) => output.push(line) });
+
+    expect(output.join("\n")).toContain("Text");
+  });
+});
+
 describe("config command", () => {
   it("prints one value for config get <key>", async () => {
     const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
