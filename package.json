@@ -7,8 +7,34 @@
     "klx": "./dist/index.js",
     "klauxy": "./dist/index.js"
   },
+  "files": [
+    "dist/**/*.js",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/klauxy.git"
+  },
+  "homepage": "https://github.com/OWNER/klauxy#readme",
+  "bugs": {
+    "url": "https://github.com/OWNER/klauxy/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "korean",
+    "translation",
+    "proxy",
+    "ollama",
+    "mlx"
+  ],
+  "os": [
+    "darwin"
+  ],
   "scripts": {
     "build": "tsc && chmod +x dist/index.js",
+    "prepack": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

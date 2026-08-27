@@ -21,6 +21,14 @@ these are missing.
 
 ## Quick start
 
+Install Klauxy first. Any one of these works:
+
+```sh
+npm install -g klauxy                       # npm
+brew tap OWNER/tap && brew install klauxy   # Homebrew
+curl -fsSL https://raw.githubusercontent.com/OWNER/klauxy/main/install.sh | sh
+```
+
 Start a model server first. On Apple Silicon oMLX is the fastest; Ollama is the
 easiest to set up.
 
