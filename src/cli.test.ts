@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { runCommand } from "./cli.js";
+import { loadConfig } from "./config.js";
 import { appendHistory } from "./history.js";
 import { klauxyPaths } from "./paths.js";
 import { readState } from "./state.js";
@@ -160,5 +161,65 @@ describe("Klauxy commands", () => {
     const text = output.join("\n");
     expect(text).toContain("Estimated net token change:");
     expect(text).not.toContain("Estimated tokens saved: -");
+  });
+});
+
+describe("provider command", () => {
+  it("lists providers and marks the current one", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(await runCommand(["provider"], { home, output: (line) => output.push(line) })).toBe(0);
+
+    const text = output.join("\n");
+    expect(text).toContain("omlx");
+    expect(text).toContain("ollama");
+    expect(text).toContain("opencode");
+    expect(text).toContain("* omlx");
+    expect(text).toContain("Current: omlx");
+  });
+
+  it("changes the provider and retargets host and model defaults", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    await runCommand(["provider", "ollama"], { home, output: (line) => output.push(line) });
+
+    const config = await loadConfig(klauxyPaths(home).config);
+    expect(config.translation.provider).toBe("ollama");
+    expect(config.translation.host).toBe("http://127.0.0.1:11434");
+    expect(config.translation.model).toBe("qwen2.5:7b");
+  });
+
+  it("accepts the explicit set form", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+
+    await runCommand(["provider", "set", "opencode"], { home, output: () => {} });
+
+    expect((await loadConfig(klauxyPaths(home).config)).translation.provider).toBe("opencode");
+  });
+
+  it("rejects an unknown provider", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(
+      await runCommand(["provider", "gpt4"], { home, output: (line) => output.push(line) }),
+    ).toBe(1);
+    expect(output.join("\n")).toContain("Unknown provider: gpt4");
+    expect((await loadConfig(klauxyPaths(home).config)).translation.provider).toBe("omlx");
+  });
+
+  it("passes host and model overrides through", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+
+    await runCommand(["provider", "ollama", "--host", "http://127.0.0.1:1234"], {
+      home,
+      output: () => {},
+    });
+
+    expect((await loadConfig(klauxyPaths(home).config)).translation.host).toBe(
+      "http://127.0.0.1:1234",
+    );
   });
 });

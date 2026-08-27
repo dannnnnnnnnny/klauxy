@@ -10,6 +10,7 @@ describe("configuration", () => {
     const config = await loadConfig(join(dir, "missing.toml"));
 
     expect(config).toEqual(DEFAULT_CONFIG);
+    expect(config.translation.provider).toBe("omlx");
     expect(config.translation.host).toBe("http://127.0.0.1:8010");
     expect(config.translation.model).toBe("Qwen3-8B-4bit");
     expect(config.translation.timeout_ms).toBe(5000);
@@ -41,6 +42,43 @@ describe("configuration", () => {
     expect(config.translation.timeout_ms).toBe(1500);
     expect(config.translation.model).toBe("Qwen3-8B-4bit");
     expect(await readFile(path, "utf8")).toContain("timeout_ms = 1500");
+  });
+
+  it("switches provider defaults and rejects unknown providers", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "klauxy-config-"));
+    const path = join(dir, "config.toml");
+
+    await setConfigValue(path, "translation.provider", "ollama");
+    const config = await loadConfig(path);
+    expect(config.translation.provider).toBe("ollama");
+    expect(config.translation.host).toBe("http://127.0.0.1:11434");
+    expect(config.translation.model).toBe("qwen2.5:7b");
+
+    await expect(setConfigValue(path, "translation.provider", "gpt4")).rejects.toThrow(
+      "unknown provider",
+    );
+  });
+
+  it("keeps a customized host when switching provider", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "klauxy-config-"));
+    const path = join(dir, "config.toml");
+
+    await setConfigValue(path, "translation.host", "http://127.0.0.1:7777");
+    await setConfigValue(path, "translation.provider", "ollama");
+
+    const config = await loadConfig(path);
+    expect(config.translation.provider).toBe("ollama");
+    expect(config.translation.host).toBe("http://127.0.0.1:7777");
+  });
+
+  it("falls back to omlx defaults when the provider value is invalid", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "klauxy-config-"));
+    const path = join(dir, "config.toml");
+    await BunLike.write(path, '[translation]\nprovider = "bogus"\n');
+
+    const config = await loadConfig(path);
+    expect(config.translation.provider).toBe("omlx");
+    expect(config.translation.host).toBe("http://127.0.0.1:8010");
   });
 });
 

@@ -1,12 +1,15 @@
 import { loadConfig, setConfigValue } from "./config.js";
 import { clearHistory, readHistory } from "./history.js";
+import { parseInitArgs, runInit } from "./init.js";
 import { klauxyPaths } from "./paths.js";
+import { PROVIDER_IDS, providerDefinition } from "./providers.js";
 import { buildSavingsGauge, estimateSavings, estimateSavingsFromText } from "./savings.js";
 import { readState, writeEnabled } from "./state.js";
 
 export interface CommandContext {
   home: string;
   output(line: string): void;
+  prompt?(question: string): Promise<string | null>;
   install?(): Promise<void>;
   uninstall?(): Promise<void>;
   doctor?(): Promise<{ ok: boolean; lines: string[] }>;
@@ -15,6 +18,65 @@ export interface CommandContext {
 export async function runCommand(args: string[], context: CommandContext): Promise<number> {
   const paths = klauxyPaths(context.home);
   const command = args[0];
+  if (command === "init") {
+    const parsed = parseInitArgs(args.slice(1));
+    if ("error" in parsed) {
+      context.output(parsed.error);
+      context.output("Usage: klx init [--provider <omlx|ollama|opencode>] [--host <url>] [--model <id>]");
+      return 1;
+    }
+    const result = await runInit(parsed, {
+      configPath: paths.config,
+      output: context.output,
+      prompt: context.prompt ?? (async () => null),
+    });
+    return result.code;
+  }
+  if (command === "provider") {
+    const positional = args[1] === "set" ? args[2] : args[1];
+    const flagStart = args[1] === "set" ? 3 : 2;
+    if (positional === undefined || positional === "list") {
+      const config = await loadConfig(paths.config);
+      context.output("Klauxy providers");
+      context.output("");
+      for (const id of PROVIDER_IDS) {
+        const definition = providerDefinition(id);
+        const marker = id === config.translation.provider ? "*" : " ";
+        context.output(
+          [marker, " ", id.padEnd(9), definition.label, " - ", definition.description].join(""),
+        );
+      }
+      context.output("");
+      context.output(
+        [
+          "Current: ",
+          config.translation.provider,
+          " (",
+          config.translation.host,
+          ", ",
+          config.translation.model,
+          ")",
+        ].join(""),
+      );
+      context.output("Change with: klx provider <id> [--host <url>] [--model <id>]");
+      return 0;
+    }
+    const parsedFlags = parseInitArgs(args.slice(flagStart));
+    if ("error" in parsedFlags) {
+      context.output(parsedFlags.error);
+      context.output("Usage: klx provider <id> [--host <url>] [--model <id>]");
+      return 1;
+    }
+    const result = await runInit(
+      { ...parsedFlags, provider: positional },
+      {
+        configPath: paths.config,
+        output: context.output,
+        prompt: context.prompt ?? (async () => null),
+      },
+    );
+    return result.code;
+  }
   if (command === "on" || command === "off") {
     const state = await writeEnabled(paths.state, command === "on");
     context.output(["Klauxy ", state.enabled ? "on" : "off"].join(""));
@@ -118,7 +180,7 @@ export async function runCommand(args: string[], context: CommandContext): Promi
     return result.ok ? 0 : 1;
   }
   context.output(
-    "Usage: klx on|off|status|history [--last <count>|clear]|savings|config get|config set <key> <value>|doctor|install|uninstall",
+    "Usage: klx init|provider [<id>]|on|off|status|history [--last <count>|clear]|savings|config get|config set <key> <value>|doctor|install|uninstall",
   );
   return 1;
 }

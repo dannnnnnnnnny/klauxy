@@ -1,9 +1,16 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import TOML from "@iarna/toml";
+import {
+  isProviderId,
+  PROVIDER_IDS,
+  type ProviderId,
+  providerDefinition,
+} from "./providers.js";
 
 export interface Config {
   translation: {
+    provider: ProviderId;
     host: string;
     model: string;
     timeout_ms: number;
@@ -28,6 +35,7 @@ export const DEFAULT_SYSTEM_PROMPT = [
 
 export const DEFAULT_CONFIG: Config = {
   translation: {
+    provider: "omlx",
     host: "http://127.0.0.1:8010",
     model: "Qwen3-8B-4bit",
     timeout_ms: 5000,
@@ -59,10 +67,15 @@ export async function loadConfig(path: string): Promise<Config> {
 
   const translation = asRecord(parsed.translation);
   const ui = asRecord(parsed.ui);
+  const provider = isProviderId(translation.provider)
+    ? translation.provider
+    : DEFAULT_CONFIG.translation.provider;
+  const definition = providerDefinition(provider);
   return {
     translation: {
-      host: stringValue(translation.host, DEFAULT_CONFIG.translation.host),
-      model: stringValue(translation.model, DEFAULT_CONFIG.translation.model),
+      provider,
+      host: stringValue(translation.host, definition.defaultHost),
+      model: stringValue(translation.model, definition.defaultModel),
       timeout_ms: numberValue(translation.timeout_ms, DEFAULT_CONFIG.translation.timeout_ms),
       max_tokens: numberValue(translation.max_tokens, DEFAULT_CONFIG.translation.max_tokens),
       system_prompt: stringValue(
@@ -92,6 +105,23 @@ function parseConfigValue(current: unknown, value: string): string | number | bo
   return value;
 }
 
+/**
+ * Switching provider retargets host and model to that provider's defaults,
+ * unless the current values were explicitly customized away from the previous
+ * provider's defaults.
+ */
+export function applyProvider(config: Config, provider: ProviderId): void {
+  const previous = providerDefinition(config.translation.provider);
+  const next = providerDefinition(provider);
+  if (config.translation.host === previous.defaultHost) {
+    config.translation.host = next.defaultHost;
+  }
+  if (config.translation.model === previous.defaultModel) {
+    config.translation.model = next.defaultModel;
+  }
+  config.translation.provider = provider;
+}
+
 export async function setConfigValue(path: string, key: string, value: string): Promise<void> {
   const config = await loadConfig(path);
   const [section, property, ...rest] = key.split(".");
@@ -103,7 +133,16 @@ export async function setConfigValue(path: string, key: string, value: string): 
   if (!(property in target)) {
     throw new Error(["unsupported configuration key: ", key].join(""));
   }
-  target[property] = parseConfigValue(target[property], value);
+  if (section === "translation" && property === "provider") {
+    if (!isProviderId(value)) {
+      throw new Error(
+        ["unknown provider: ", value, " (expected ", PROVIDER_IDS.join(", "), ")"].join(""),
+      );
+    }
+    applyProvider(config, value);
+  } else {
+    target[property] = parseConfigValue(target[property], value);
+  }
 
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temporaryPath = [path, ".tmp-", process.pid, "-", Date.now()].join("");

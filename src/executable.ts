@@ -1,5 +1,6 @@
 import { constants } from "node:fs";
 import { access, realpath } from "node:fs/promises";
+import { join } from "node:path";
 import { LEGACY_KAGENT_HEALTH, LEGACY_KAGENT_PROXY } from "./paths.js";
 
 export type IsShimPredicate = (candidate: string) => Promise<boolean>;

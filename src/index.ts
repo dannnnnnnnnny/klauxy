@@ -2,6 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { startAnthropicProxy } from "./anthropic-proxy.js";
 import {
@@ -23,8 +24,8 @@ import {
   uninstallShim,
 } from "./install.js";
 import { claudeEnvironment } from "./launcher-env.js";
-import { OmlxTranslator } from "./omlx.js";
 import { klauxyPaths } from "./paths.js";
+import { createTranslator } from "./providers.js";
 import {
   installProxyService,
   PROXY_HOST,
@@ -112,7 +113,7 @@ async function runProxyDaemon(home: string): Promise<void> {
   const config = await loadConfig(paths.config);
   const proxy = await startAnthropicProxy({
     upstream: new URL(manifest.upstream),
-    translator: new OmlxTranslator(config.translation),
+    translator: createTranslator(config.translation),
     readEnabled: async () => (await readState(paths.state)).enabled,
     writeHistory: (entry) => appendHistory(paths.history, entry),
     listen: { host: PROXY_HOST, port: PROXY_PORT },
@@ -186,6 +187,15 @@ async function main(): Promise<number | undefined> {
   return runCommand(args, {
     home,
     output: console.log,
+    prompt: async (question: string) => {
+      if (!process.stdin.isTTY) return null;
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        return await rl.question(question);
+      } finally {
+        rl.close();
+      }
+    },
     install: async () => {
       const paths = klauxyPaths(home);
 
@@ -281,6 +291,7 @@ async function main(): Promise<number | undefined> {
         arch: process.arch,
         nodeVersion: process.version,
         claude,
+        provider: config.translation.provider,
         host: config.translation.host,
         model: config.translation.model,
         timeoutMs: config.translation.timeout_ms,
