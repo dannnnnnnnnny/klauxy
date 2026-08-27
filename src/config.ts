@@ -87,14 +87,37 @@ export async function loadConfig(path: string): Promise<Config> {
   };
 }
 
+/**
+ * Every key `klx config set` accepts, derived from the default config so it can
+ * never drift from what the file actually holds.
+ */
+export function configKeys(): string[] {
+  const keys: string[] = [];
+  for (const section of ["translation", "ui"] as const) {
+    for (const property of Object.keys(DEFAULT_CONFIG[section])) {
+      keys.push(`${section}.${property}`);
+    }
+  }
+  return keys;
+}
+
+function unsupportedKey(key: string): Error {
+  // Naming the valid keys turns a dead end into a next step.
+  return new Error(
+    [`unsupported configuration key: ${key}`, `valid keys: ${configKeys().join(", ")}`].join("\n"),
+  );
+}
+
 function parseConfigValue(current: unknown, value: string): string | number | boolean {
   if (typeof current === "number") {
     const parsed = Number(value);
-    if (!Number.isFinite(parsed)) throw new Error("value must be a number");
+    if (!Number.isFinite(parsed)) throw new Error(`value must be a number, got: ${value}`);
     return parsed;
   }
   if (typeof current === "boolean") {
-    if (value !== "true" && value !== "false") throw new Error("value must be true or false");
+    if (value !== "true" && value !== "false") {
+      throw new Error(`value must be true or false, got: ${value}`);
+    }
     return value === "true";
   }
   return value;
@@ -121,12 +144,12 @@ export async function setConfigValue(path: string, key: string, value: string): 
   const config = await loadConfig(path);
   const [section, property, ...rest] = key.split(".");
   if (rest.length > 0 || (section !== "translation" && section !== "ui") || !property) {
-    throw new Error(["unsupported configuration key: ", key].join(""));
+    throw unsupportedKey(key);
   }
 
   const target = config[section] as unknown as Record<string, unknown>;
   if (!(property in target)) {
-    throw new Error(["unsupported configuration key: ", key].join(""));
+    throw unsupportedKey(key);
   }
   if (section === "translation" && property === "provider") {
     if (!isProviderId(value)) {

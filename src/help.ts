@@ -47,7 +47,7 @@ export const COMMANDS: readonly CommandDoc[] = [
   { name: "doctor", summary: "diagnose platform, Claude, and provider", group: "inspect" },
   {
     name: "config",
-    args: "get|set <key> <value>",
+    args: "get [<key>]|set <key> <value>",
     summary: "read or update configuration",
     group: "config",
   },

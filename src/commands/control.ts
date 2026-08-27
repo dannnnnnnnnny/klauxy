@@ -1,4 +1,4 @@
-import { loadConfig, setConfigValue } from "../config.js";
+import { configKeys, loadConfig, setConfigValue } from "../config.js";
 import { readState, writeEnabled } from "../state.js";
 import { classifyDiagnostic } from "../tui.js";
 import { type CommandHandler, labelled } from "./context.js";
@@ -35,7 +35,23 @@ export const config: CommandHandler = async (run) => {
   const [, action, key, ...rest] = run.args;
 
   if (action === "get") {
-    run.output(JSON.stringify(await loadConfig(run.paths.config), null, 2));
+    const settings = await loadConfig(run.paths.config);
+    if (key !== undefined) {
+      // `config get <key>` prints one value, which is what a script wants.
+      const [section, property] = key.split(".");
+      const record = (settings as unknown as Record<string, Record<string, unknown>>)[
+        section ?? ""
+      ];
+      const value = record?.[property ?? ""];
+      if (value === undefined) {
+        run.output([run.style.mark("fail"), " unknown key: ", run.style.bold(key)].join(""));
+        run.output(run.style.dim(`valid keys: ${configKeys().join(", ")}`));
+        return 1;
+      }
+      run.output(typeof value === "string" ? value : JSON.stringify(value));
+      return 0;
+    }
+    run.output(JSON.stringify(settings, null, 2));
     return 0;
   }
   if (action === "set" && key !== undefined && rest.length > 0) {
@@ -43,7 +59,8 @@ export const config: CommandHandler = async (run) => {
     run.output([run.style.mark("ok"), " saved ", run.style.bold(key)].join(""));
     return 0;
   }
-  run.output("Usage: klx config get | klx config set <key> <value>");
+  run.output("Usage: klx config get [<key>] | klx config set <key> <value>");
+  run.output(run.style.dim(`keys: ${configKeys().join(", ")}`));
   return 1;
 };
 

@@ -251,6 +251,67 @@ describe("discoverability", () => {
   });
 });
 
+describe("config command", () => {
+  it("prints one value for config get <key>", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    const code = await runCommand(["config", "get", "translation.provider"], {
+      home,
+      output: (line) => output.push(line),
+    });
+
+    expect(code).toBe(0);
+    expect(output).toEqual(["omlx"]);
+  });
+
+  it("prints the whole config when no key is given", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    await runCommand(["config", "get"], { home, output: (line) => output.push(line) });
+
+    expect(output.join("\n")).toContain('"translation"');
+  });
+
+  it("names the valid keys for an unknown key", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    const code = await runCommand(["config", "get", "translation.nope"], {
+      home,
+      output: (line) => output.push(line),
+    });
+
+    expect(code).toBe(1);
+    expect(output.join("\n")).toContain("translation.provider");
+  });
+
+  it("lists keys in the usage line", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(await runCommand(["config"], { home, output: (line) => output.push(line) })).toBe(1);
+    expect(output.join("\n")).toContain("keys:");
+  });
+
+  it("round-trips a set value through get", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    await runCommand(["config", "set", "translation.timeout_ms", "12000"], {
+      home,
+      output: () => {},
+    });
+    await runCommand(["config", "get", "translation.timeout_ms"], {
+      home,
+      output: (line) => output.push(line),
+    });
+
+    expect(output).toEqual(["12000"]);
+  });
+});
+
 describe("try command", () => {
   it("shows the original and translated sample on success", async () => {
     const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));

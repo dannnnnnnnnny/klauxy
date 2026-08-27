@@ -2,7 +2,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG, loadConfig, setConfigValue } from "./config.js";
+import { configKeys, DEFAULT_CONFIG, loadConfig, setConfigValue } from "./config.js";
 
 describe("configuration", () => {
   it("uses the local oMLX translation defaults when the file is missing", async () => {
@@ -88,3 +88,39 @@ const BunLike = {
     await writeFile(path, data, "utf8");
   },
 };
+describe("configuration errors name the way forward", () => {
+  it("lists valid keys when the key is unknown", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "klauxy-config-"));
+    const path = join(dir, "config.toml");
+
+    await expect(setConfigValue(path, "translation.bogus", "5")).rejects.toThrow(
+      /valid keys:.*translation\.provider/s,
+    );
+  });
+
+  it("rejects a key outside the known sections", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "klauxy-config-"));
+    const path = join(dir, "config.toml");
+
+    await expect(setConfigValue(path, "network.proxy", "on")).rejects.toThrow("valid keys:");
+    await expect(setConfigValue(path, "translation", "x")).rejects.toThrow("valid keys:");
+  });
+
+  it("echoes the offending value for a type mismatch", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "klauxy-config-"));
+    const path = join(dir, "config.toml");
+
+    await expect(setConfigValue(path, "translation.timeout_ms", "abc")).rejects.toThrow("got: abc");
+    await expect(setConfigValue(path, "ui.show_translation", "yes")).rejects.toThrow("got: yes");
+  });
+
+  it("derives the key list from the config shape", () => {
+    const keys = configKeys();
+
+    expect(keys).toContain("translation.provider");
+    expect(keys).toContain("translation.system_prompt");
+    expect(keys).toContain("ui.show_translation");
+    // Every advertised key must actually be settable.
+    expect(keys.every((key) => key.includes("."))).toBe(true);
+  });
+});

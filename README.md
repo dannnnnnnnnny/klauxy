@@ -99,6 +99,7 @@ klx try [text]                # translate one sample to check the setup
 klx doctor                    # diagnose platform, Claude, and provider
 
 klx config get                # print the effective configuration
+klx config get translation.provider   # print one value
 klx config set translation.system_prompt "Translate only."
 ```
 
