@@ -653,6 +653,42 @@ describe("provider command", () => {
     expect((await loadConfig(klauxyPaths(home).config)).translation.provider).toBe("omlx");
   });
 
+  it("rejects an unknown flag when switching provider", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(
+      await runCommand(["provider", "ollama", "--verbose"], {
+        home,
+        output: (line) => output.push(line),
+      }),
+    ).toBe(1);
+    expect(output.join("\n")).toContain("unknown option: --verbose");
+  });
+
+  it("rejects a flag with no value when switching", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(
+      await runCommand(["provider", "ollama", "--host"], {
+        home,
+        output: (line) => output.push(line),
+      }),
+    ).toBe(1);
+    expect(output.join("\n")).toContain("missing value for --host");
+  });
+
+  it("accepts the explicit list subcommand", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(
+      await runCommand(["provider", "list"], { home, output: (line) => output.push(line) }),
+    ).toBe(0);
+    expect(output.join("\n")).toContain("Klauxy providers");
+  });
+
   it("uses the injected probe when switching, not a live network call", async () => {
     const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
     const output: string[] = [];

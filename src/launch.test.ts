@@ -44,4 +44,15 @@ describe("launching the real Claude process", () => {
     handle.kill("SIGTERM");
     expect(await exit).toBe(1);
   });
+
+  it("defaults to SIGTERM when no signal is given", async () => {
+    const handle = spawnClaude("/bin/sh", ["-c", "sleep 30"], {
+      cwd: await workdir(),
+      env: process.env,
+    });
+    const exit = exitOf(handle);
+    handle.kill();
+
+    expect(await exit).toBe(1);
+  });
 });
