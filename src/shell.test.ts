@@ -134,3 +134,47 @@ describe("PATH block syntax per shell", () => {
     expect(await readFile(config, "utf8")).toBe("set -g KEEP 1\n");
   });
 });
+describe("reload hint edge cases", () => {
+  it("falls back to a generic hint when there is no target", () => {
+    expect(reloadHint([], "/Users/test")).toBe("Restart your shell");
+  });
+
+  it("shows an absolute path when the file lives outside home", () => {
+    const hint = reloadHint([{ path: "/etc/zshrc", syntax: "posix" }], "/Users/test");
+
+    expect(hint).toBe("Restart your shell or run: source /etc/zshrc");
+  });
+
+  it("names the fish config when fish is the target", async () => {
+    const root = await mkdtemp(join(tmpdir(), "klauxy-shell-"));
+    const config = join(root, ".config", "fish", "config.fish");
+
+    expect(reloadHint([{ path: config, syntax: "fish" }], root)).toContain(
+      "~/.config/fish/config.fish",
+    );
+  });
+
+  it("prefers the first target when several exist", async () => {
+    const root = await mkdtemp(join(tmpdir(), "klauxy-shell-"));
+
+    const hint = reloadHint(
+      [
+        { path: join(root, ".zshrc"), syntax: "posix" },
+        { path: join(root, ".bashrc"), syntax: "posix" },
+      ],
+      root,
+    );
+
+    expect(hint).toContain("~/.zshrc");
+    expect(hint).not.toContain(".bashrc");
+  });
+
+  it("ignores a SHELL value it does not recognise", async () => {
+    const root = await mkdtemp(join(tmpdir(), "klauxy-shell-"));
+
+    // An unfamiliar shell still needs a working PATH entry somewhere.
+    expect(await shellTargets(root, { SHELL: "/usr/bin/exotic" })).toEqual([
+      { path: join(root, ".zshrc"), syntax: "posix" },
+    ]);
+  });
+});

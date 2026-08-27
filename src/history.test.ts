@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -134,5 +134,47 @@ describe("concurrent appends", () => {
     await expect(failing).resolves.toBe("failed");
     await expect(succeeding).resolves.toBeUndefined();
     expect(await readHistory(path)).toHaveLength(1);
+  });
+});
+describe("lock contention", () => {
+  it("recovers when a stale lock file is left behind", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "klauxy-history-"));
+    const path = join(directory, "history.jsonl");
+    const entry = {
+      schema: 1 as const,
+      timestamp: "2026-08-26T12:00:00.000Z",
+      status: "translated" as const,
+      durationMs: 1,
+      original: "원문",
+      sent: "Text",
+    };
+
+    // A crashed writer can leave the lock behind; release it shortly after.
+    await writeFile(`${path}.lock`, "", "utf8");
+    const pending = appendHistory(path, entry);
+    setTimeout(() => {
+      void rm(`${path}.lock`, { force: true });
+    }, 30);
+
+    await expect(pending).resolves.toBeUndefined();
+    expect(await readHistory(path)).toHaveLength(1);
+  });
+
+  it("keeps the file readable after clearing", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "klauxy-history-"));
+    const path = join(directory, "history.jsonl");
+    await appendHistory(path, {
+      schema: 1,
+      timestamp: "2026-08-26T12:00:00.000Z",
+      status: "translated",
+      durationMs: 1,
+      original: "원문",
+      sent: "Text",
+    });
+
+    await clearHistory(path);
+
+    expect(await readHistory(path)).toEqual([]);
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
   });
 });
