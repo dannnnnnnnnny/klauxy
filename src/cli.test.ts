@@ -284,6 +284,46 @@ describe("try command", () => {
     expect(text).toContain("Fix the bug.");
   });
 
+  it("suggests raising the limit when the provider times out", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    const code = await runCommand(["try"], {
+      home,
+      output: (line) => output.push(line),
+      createTranslator: () => ({
+        translate: async () => {
+          throw new Error("oMLX request timed out");
+        },
+      }),
+    });
+
+    expect(code).toBe(1);
+    const text = output.join("\n");
+    expect(text).toContain("still be loading");
+    expect(text).toContain("translation.timeout_ms");
+    expect(text).toContain("5000ms");
+  });
+
+  it("points at doctor for failures that are not timeouts", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    await runCommand(["try"], {
+      home,
+      output: (line) => output.push(line),
+      createTranslator: () => ({
+        translate: async () => {
+          throw new Error("connect ECONNREFUSED");
+        },
+      }),
+    });
+
+    const text = output.join("\n");
+    expect(text).toContain("klx doctor");
+    expect(text).not.toContain("still be loading");
+  });
+
   it("reports a failing provider and exits non-zero", async () => {
     const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
     const output: string[] = [];
@@ -301,7 +341,7 @@ describe("try command", () => {
     expect(code).toBe(1);
     const text = output.join("\n");
     expect(text).toContain("oMLX request timed out");
-    expect(text).toContain("klx doctor");
+    expect(text).toContain("(unchanged)");
   });
 });
 

@@ -130,7 +130,18 @@ export const attempt: CommandHandler = async (run) => {
     output([style.dim("en  "), style.color("yellow", "(unchanged)")].join(""));
     output("");
     output([style.mark("fail"), " ", result.failure ?? "translation did not run"].join(""));
-    output(style.dim("Run klx doctor to check the provider."));
+    // A timeout on a cold model is common enough to deserve its own hint, since
+    // the fix is a config change rather than a broken setup.
+    if (/timed out/i.test(result.failure ?? "")) {
+      output(
+        style.dim(
+          `The model may still be loading. Current limit: ${config.translation.timeout_ms}ms.`,
+        ),
+      );
+      output(style.dim("  Raise it with: klx config set translation.timeout_ms 15000"));
+    } else {
+      output(style.dim("Run klx doctor to check the provider."));
+    }
     return 1;
   }
   indent("en", result.text);
