@@ -49,24 +49,58 @@ export async function readHistory(path: string): Promise<HistoryEntry[]> {
   }
 }
 
-async function withLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
-  const lockPath = `${path}.lock`;
+/**
+ * Serialises writers within this process.
+ *
+ * Background Claude workers share one history file, so appends collide. Queueing
+ * in memory first means same-process writers never spin on the lock file at all;
+ * the on-disk lock is left to coordinate separate processes.
+ */
+const queues = new Map<string, Promise<unknown>>();
+
+/** Lock retry backoff: short at first, then easing off under contention. */
+function backoffMs(attempt: number): number {
+  return Math.min(2 ** Math.min(attempt, 5), 40);
+}
+
+async function acquireFileLock(path: string, lockPath: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   for (let attempt = 0; ; attempt++) {
     try {
       const handle = await open(lockPath, "wx", 0o600);
       await handle.close();
-      break;
+      return;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 100) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, backoffMs(attempt)));
     }
   }
-  try {
-    return await operation();
-  } finally {
-    await rm(lockPath, { force: true });
-  }
+}
+
+async function withLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
+  const lockPath = `${path}.lock`;
+  const run = async (): Promise<T> => {
+    await acquireFileLock(path, lockPath);
+    try {
+      return await operation();
+    } finally {
+      await rm(lockPath, { force: true });
+    }
+  };
+
+  // Chain onto any in-flight write for this path, ignoring its outcome so one
+  // failed append never blocks the next.
+  const previous = queues.get(path) ?? Promise.resolve();
+  const settled = previous.then(run, run);
+  const tail = settled.catch(() => undefined);
+  queues.set(path, tail);
+
+  // Drop the entry once this is the last write so the map cannot grow unbounded.
+  void tail.then(() => {
+    if (queues.get(path) === tail) queues.delete(path);
+  });
+
+  return settled;
 }
 
 async function writeEntries(path: string, entries: HistoryEntry[]): Promise<void> {
