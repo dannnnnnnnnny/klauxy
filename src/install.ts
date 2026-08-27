@@ -1,21 +1,17 @@
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-import { type HistoryEntry, readHistory } from "./history.js";
+import { chmod, readFile, rm } from "node:fs/promises";
+import { atomicWrite } from "./fs-atomic.js";
 import { klauxyPaths, legacyKagentPaths } from "./paths.js";
 import type { ShellTarget } from "./shell.js";
+
+// Re-exported so callers keep a single import for install-time concerns while
+// the legacy rename path lives in its own module.
+export { getLegacyRealClaude, migrateLegacyKagent } from "./migrate.js";
 
 const START = "# >>> klauxy >>>";
 const END = "# <<< klauxy <<<";
 const BLOCK_PATTERN = /\n?# >>> klauxy >>>[\s\S]*?# <<< klauxy <<<\n?/g;
 
 const LEGACY_BLOCK_PATTERN = /\n?# >>> kagent >>>[\s\S]*?# <<< kagent <<<\n?/g;
-
-async function atomicWrite(path: string, content: string, mode = 0o600): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = [path, ".tmp-", process.pid, "-", Date.now()].join("");
-  await writeFile(temporary, content, { encoding: "utf8", mode });
-  await rename(temporary, path);
-}
 
 function shellQuote(value: string): string {
   return ["'", value.replaceAll("'", "'\"'\"'"), "'"].join("");
@@ -36,101 +32,6 @@ export interface InstallOptions {
   entry: string;
   upstream: string;
   rcFiles: ShellTarget[];
-}
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await readFile(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function copyFile(src: string, dest: string): Promise<void> {
-  const content = await readFile(src);
-  await mkdir(dirname(dest), { recursive: true, mode: 0o700 });
-  await writeFile(dest, content, { mode: 0o600 });
-}
-
-function mergeHistory(canonical: HistoryEntry[], legacy: HistoryEntry[]): HistoryEntry[] {
-  const seen = new Set<string>();
-  const merged: HistoryEntry[] = [];
-  for (const entry of [...canonical, ...legacy]) {
-    const key = entry.timestamp + entry.original + entry.sent;
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(entry);
-    }
-  }
-  merged.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  return merged.slice(-100);
-}
-
-async function writeHistoryEntries(path: string, entries: HistoryEntry[]): Promise<void> {
-  const temporary = `${path}.tmp-${process.pid}-${Date.now()}`;
-  const content = entries.map((e) => JSON.stringify(e)).join("\n");
-  await writeFile(temporary, content.length === 0 ? "" : `${content}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  await rename(temporary, path);
-  await chmod(path, 0o600);
-}
-
-async function readLegacyManifest(path: string): Promise<Record<string, unknown> | null> {
-  try {
-    const raw = JSON.parse(await readFile(path, "utf8"));
-    if (raw && typeof raw === "object") return raw as Record<string, unknown>;
-  } catch {
-    /* corrupted */
-  }
-  return null;
-}
-
-export async function migrateLegacyKagent(home: string): Promise<void> {
-  const canonical = klauxyPaths(home);
-  const legacy = legacyKagentPaths(home);
-
-  const configExists = await fileExists(legacy.config);
-  const stateExists = await fileExists(legacy.state);
-  const historyExists = await fileExists(legacy.history);
-  const backupExists = await fileExists(legacy.claudeSettingsBackup);
-  const manifestExists = await fileExists(legacy.manifest);
-
-  if (!configExists && !stateExists && !historyExists && !backupExists && !manifestExists) {
-    return;
-  }
-
-  await mkdir(canonical.configDir, { recursive: true, mode: 0o700 });
-
-  if (configExists && !(await fileExists(canonical.config))) {
-    await copyFile(legacy.config, canonical.config);
-  }
-  if (stateExists && !(await fileExists(canonical.state))) {
-    await copyFile(legacy.state, canonical.state);
-  }
-  if (backupExists && !(await fileExists(canonical.claudeSettingsBackup))) {
-    await copyFile(legacy.claudeSettingsBackup, canonical.claudeSettingsBackup);
-  }
-
-  if (historyExists) {
-    const canonicalEntries = (await fileExists(canonical.history))
-      ? await readHistory(canonical.history)
-      : [];
-    const legacyEntries = await readHistory(legacy.history);
-    const merged = mergeHistory(canonicalEntries, legacyEntries);
-    await writeHistoryEntries(canonical.history, merged);
-  }
-}
-
-export async function getLegacyRealClaude(home: string): Promise<string | null> {
-  const legacy = legacyKagentPaths(home);
-  const manifest = await readLegacyManifest(legacy.manifest);
-  if (manifest && typeof manifest.realClaude === "string") {
-    return manifest.realClaude;
-  }
-  return null;
 }
 
 async function writeAllShims(options: InstallOptions): Promise<void> {
