@@ -258,3 +258,57 @@ describe("Anthropic message transformation", () => {
     expect(translator.translate).toHaveBeenCalledWith("고쳐줘", controller.signal);
   });
 });
+describe("internal agent payloads stay untranslated", () => {
+  const translator = { translate: async () => "TRANSLATED" };
+
+  function messageWith(text: string) {
+    return { model: "claude", messages: [{ role: "user", content: [{ type: "text", text }] }] };
+  }
+
+  async function sent(text: string): Promise<string> {
+    const result = await transformMessagesBody(messageWith(text), true, translator);
+    const body = result.body as {
+      messages: Array<{ content: Array<{ text: string }> }>;
+    };
+    return body.messages[0]?.content[0]?.text ?? "";
+  }
+
+  it("passes a single JSON object through untouched", async () => {
+    // Claude sends tool bookkeeping as JSON; translating it would corrupt it.
+    const payload = JSON.stringify({ tool: "read", path: "src/파일.ts" });
+
+    expect(await sent(payload)).toBe(payload);
+  });
+
+  it("passes a JSON array through untouched", async () => {
+    const payload = JSON.stringify([{ step: "검토" }, { step: "수정" }]);
+
+    expect(await sent(payload)).toBe(payload);
+  });
+
+  it("passes JSON-lines through untouched", async () => {
+    const payload = [
+      JSON.stringify({ event: "start", note: "시작" }),
+      JSON.stringify({ event: "end", note: "끝" }),
+    ].join("\n");
+
+    expect(await sent(payload)).toBe(payload);
+  });
+
+  it("still translates prose that merely begins with a brace", async () => {
+    // Not parseable as JSON, so it is a real prompt despite the leading brace.
+    expect(await sent("{ 이것은 JSON이 아니고 설명이야")).toBe("TRANSLATED");
+  });
+
+  it("still translates when only one of several lines is JSON", async () => {
+    const mixed = [JSON.stringify({ a: 1 }), "이 줄은 평범한 한국어 문장이야"].join("\n");
+
+    expect(await sent(mixed)).toBe("TRANSLATED");
+  });
+
+  it("passes a system reminder through untouched", async () => {
+    const reminder = "<system-reminder>이 내용은 내부용이야</system-reminder>";
+
+    expect(await sent(reminder)).toBe(reminder);
+  });
+});

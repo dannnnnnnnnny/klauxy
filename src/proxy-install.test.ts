@@ -1,11 +1,14 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   installProxyService,
   uninstallLegacyProxyService,
   uninstallProxyService,
+  waitForProxy,
 } from "./proxy-service.js";
 
 interface Call {
@@ -161,5 +164,57 @@ describe("uninstalling the proxy service", () => {
     await uninstallLegacyProxyService(home, run);
 
     expect(calls[0]?.args.join(" ")).toContain("com.kagent.proxy");
+  });
+});
+describe("waiting for the proxy", () => {
+  const servers: Array<{ close(): Promise<void> }> = [];
+
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((server) => server.close()));
+  });
+
+  async function health(handler: (count: number) => { status: number }) {
+    let count = 0;
+    const server = createServer((request, response) => {
+      request.resume();
+      count += 1;
+      const { status } = handler(count);
+      response.writeHead(status, { "content-type": "application/json" });
+      response.end('{"ok":true}');
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    servers.push({
+      close: () =>
+        new Promise<void>((resolve, reject) =>
+          server.close((error) => (error ? reject(error) : resolve())),
+        ),
+    });
+    const port = (server.address() as AddressInfo).port;
+    return { url: `http://127.0.0.1:${port}`, attempts: () => count };
+  }
+
+  it("returns as soon as the health check succeeds", async () => {
+    const proxy = await health(() => ({ status: 200 }));
+
+    await expect(waitForProxy(proxy.url, 1000)).resolves.toBeUndefined();
+    expect(proxy.attempts()).toBe(1);
+  });
+
+  it("keeps polling while the proxy is still starting", async () => {
+    // A supervisor-launched proxy is briefly up but not yet serving.
+    const proxy = await health((count) => ({ status: count < 3 ? 503 : 200 }));
+
+    await expect(waitForProxy(proxy.url, 2000)).resolves.toBeUndefined();
+    expect(proxy.attempts()).toBeGreaterThanOrEqual(3);
+  });
+
+  it("reports the last HTTP status when it never becomes healthy", async () => {
+    const proxy = await health(() => ({ status: 503 }));
+
+    await expect(waitForProxy(proxy.url, 200)).rejects.toThrow(/unavailable.*503/s);
+  });
+
+  it("reports a connection failure when nothing is listening", async () => {
+    await expect(waitForProxy("http://127.0.0.1:1", 200)).rejects.toThrow("unavailable");
   });
 });
