@@ -1,0 +1,164 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import { runCommand } from "./cli.js";
+import { appendHistory } from "./history.js";
+import { klauxyPaths } from "./paths.js";
+import { readState } from "./state.js";
+
+describe("Klauxy commands", () => {
+  it("toggles persistent state and reports status", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+    expect(await runCommand(["on"], { home, output: (line) => output.push(line) })).toBe(0);
+    expect((await readState(klauxyPaths(home).state)).enabled).toBe(true);
+    await runCommand(["status"], { home, output: (line) => output.push(line) });
+    expect(output.at(-1)).toContain("on");
+    await runCommand(["off"], { home, output: (line) => output.push(line) });
+    expect((await readState(klauxyPaths(home).state)).enabled).toBe(false);
+  });
+
+  it("sets and prints system_prompt through config commands", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+    await runCommand(["config", "set", "translation.system_prompt", "Translate only."], {
+      home,
+      output: (line) => output.push(line),
+    });
+    await runCommand(["config", "get"], { home, output: (line) => output.push(line) });
+    expect(output.at(-1)).toContain("Translate only.");
+  });
+
+  it("delegates install, uninstall, and doctor operations", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+    const install = vi.fn().mockResolvedValue(undefined);
+    const uninstall = vi.fn().mockResolvedValue(undefined);
+    const doctor = vi.fn().mockResolvedValue({ ok: true, lines: ["Claude: ok", "oMLX: ok"] });
+    const context = {
+      home,
+      output: (line: string) => output.push(line),
+      install,
+      uninstall,
+      doctor,
+    };
+    expect(await runCommand(["install"], context)).toBe(0);
+    expect(await runCommand(["uninstall"], context)).toBe(0);
+    expect(await runCommand(["doctor"], context)).toBe(0);
+    expect(install).toHaveBeenCalledOnce();
+    expect(uninstall).toHaveBeenCalledOnce();
+    expect(output.join("\n")).toContain("oMLX: ok");
+  });
+
+  it("prints recent translation history and supports --last", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const path = klauxyPaths(home).history;
+    await appendHistory(path, {
+      schema: 1,
+      timestamp: "2026-08-26T12:00:00.000Z",
+      status: "translated",
+      durationMs: 684,
+      original: "첫 번째",
+      sent: "First",
+    });
+    await appendHistory(path, {
+      schema: 1,
+      timestamp: "2026-08-26T12:01:00.000Z",
+      status: "failed",
+      durationMs: 5000,
+      original: "두 번째",
+      sent: "두 번째",
+      failure: "timed out",
+    });
+    const output: string[] = [];
+
+    expect(
+      await runCommand(["history", "--last", "1"], {
+        home,
+        output: (line) => output.push(line),
+      }),
+    ).toBe(0);
+
+    expect(output.join("\n")).toContain("failed");
+    expect(output.join("\n")).toContain("Original: 두 번째");
+    expect(output.join("\n")).toContain("Sent: 두 번째");
+    expect(output.join("\n")).not.toContain("첫 번째");
+  });
+
+  it("clears translation history", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    await appendHistory(klauxyPaths(home).history, {
+      schema: 1,
+      timestamp: "2026-08-26T12:00:00.000Z",
+      status: "translated",
+      durationMs: 10,
+      original: "원문",
+      sent: "Translation",
+    });
+    const output: string[] = [];
+
+    expect(
+      await runCommand(["history", "clear"], { home, output: (line) => output.push(line) }),
+    ).toBe(0);
+    expect(output.at(-1)).toBe("Klauxy history cleared.");
+    const after: string[] = [];
+    await runCommand(["history"], { home, output: (line) => after.push(line) });
+    expect(after).toEqual(["No Klauxy history."]);
+  });
+
+  it("shows savings for translated entries", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    await appendHistory(klauxyPaths(home).history, {
+      schema: 1,
+      timestamp: "2026-08-26T12:00:00.000Z",
+      status: "translated",
+      durationMs: 100,
+      original: "구조를 설명해줘",
+      sent: "Explain the structure.",
+    });
+    const output: string[] = [];
+
+    expect(await runCommand(["savings"], { home, output: (line) => output.push(line) })).toBe(0);
+
+    const text = output.join("\n");
+    expect(text).toContain("Klauxy Savings");
+    expect(text).toContain("Successful translations: 1");
+    expect(text).toContain("Estimated original tokens:");
+    expect(text).toContain("Estimated forwarded tokens:");
+    expect(text).toContain("Estimated tokens saved:");
+    expect(text).toContain("Estimated savings:");
+    expect(text).toContain("Token counts are estimates");
+    expect(text).not.toContain("구조");
+  });
+
+  it("reports no data when history is empty for savings", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(await runCommand(["savings"], { home, output: (line) => output.push(line) })).toBe(0);
+
+    const text = output.join("\n");
+    expect(text).toContain("Klauxy Savings");
+    expect(text).toContain("No successful translations to compare.");
+  });
+
+  it("shows net increase when translations grow", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    await appendHistory(klauxyPaths(home).history, {
+      schema: 1,
+      timestamp: "2026-08-26T12:00:00.000Z",
+      status: "translated",
+      durationMs: 50,
+      original: "ok",
+      sent: "OK, I understand the request and will proceed accordingly.",
+    });
+    const output: string[] = [];
+
+    expect(await runCommand(["savings"], { home, output: (line) => output.push(line) })).toBe(0);
+
+    const text = output.join("\n");
+    expect(text).toContain("Estimated net token change:");
+    expect(text).not.toContain("Estimated tokens saved: -");
+  });
+});

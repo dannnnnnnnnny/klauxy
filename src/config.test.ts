@@ -1,0 +1,52 @@
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { DEFAULT_CONFIG, loadConfig, setConfigValue } from "./config.js";
+
+describe("configuration", () => {
+  it("uses the local oMLX translation defaults when the file is missing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "kagent-config-"));
+    const config = await loadConfig(join(dir, "missing.toml"));
+
+    expect(config).toEqual(DEFAULT_CONFIG);
+    expect(config.translation.host).toBe("http://127.0.0.1:8010");
+    expect(config.translation.model).toBe("Qwen3-8B-4bit");
+    expect(config.translation.timeout_ms).toBe(5000);
+    expect(config.translation.system_prompt).toContain("including both curly braces");
+    expect(config.translation.system_prompt).toContain("Never invent a placeholder");
+  });
+
+  it("reads translation and UI values from TOML", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "kagent-config-"));
+    const path = join(dir, "config.toml");
+    await BunLike.write(
+      path,
+      '[translation]\nhost = "http://127.0.0.1:9000"\ntimeout_ms = 1200\n\n[ui]\nshow_translation = true\n',
+    );
+
+    const config = await loadConfig(path);
+    expect(config.translation.host).toBe("http://127.0.0.1:9000");
+    expect(config.translation.timeout_ms).toBe(1200);
+    expect(config.ui.show_translation).toBe(true);
+  });
+
+  it("updates one supported key without losing other settings", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "kagent-config-"));
+    const path = join(dir, "config.toml");
+
+    await setConfigValue(path, "translation.timeout_ms", "1500");
+
+    const config = await loadConfig(path);
+    expect(config.translation.timeout_ms).toBe(1500);
+    expect(config.translation.model).toBe("Qwen3-8B-4bit");
+    expect(await readFile(path, "utf8")).toContain("timeout_ms = 1500");
+  });
+});
+
+const BunLike = {
+  write: async (path: string, data: string) => {
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(path, data, "utf8");
+  },
+};

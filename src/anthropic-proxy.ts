@@ -1,0 +1,210 @@
+import { createServer, type IncomingHttpHeaders, type ServerResponse } from "node:http";
+import { Readable } from "node:stream";
+import type { HistoryEntry } from "./history.js";
+import { transformMessagesBody } from "./message-transform.js";
+import type { Translator } from "./pipeline.js";
+
+export interface AnthropicProxyOptions {
+  upstream: URL;
+  translator: Translator;
+  readEnabled(): Promise<boolean>;
+  writeHistory?(entry: HistoryEntry): Promise<void>;
+  maxBodyBytes?: number;
+  listen?: { host: string; port: number };
+}
+
+export interface AnthropicProxy {
+  baseUrl: string;
+  close(): Promise<void>;
+}
+
+const HOP_BY_HOP = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+function requestHeaders(input: IncomingHttpHeaders, contentLength: number): Headers {
+  const output = new Headers();
+  for (const [name, value] of Object.entries(input)) {
+    const lower = name.toLowerCase();
+    if (
+      HOP_BY_HOP.has(lower) ||
+      lower === "host" ||
+      lower === "content-length" ||
+      value === undefined
+    )
+      continue;
+    if (Array.isArray(value)) {
+      for (const item of value) output.append(name, item);
+    } else {
+      output.set(name, value);
+    }
+  }
+  if (contentLength > 0) output.set("content-length", String(contentLength));
+  return output;
+}
+
+function responseHeaders(response: Response): Record<string, string | string[]> {
+  const output: Record<string, string | string[]> = {};
+  for (const [name, value] of response.headers) {
+    if (
+      !HOP_BY_HOP.has(name.toLowerCase()) &&
+      name.toLowerCase() !== "content-length" &&
+      name.toLowerCase() !== "content-encoding"
+    ) {
+      output[name] = value;
+    }
+  }
+  const cookies = response.headers.getSetCookie();
+  if (cookies.length > 0) output["set-cookie"] = cookies;
+  return output;
+}
+
+function isMessagesRequest(method: string | undefined, url: string | undefined): boolean {
+  if (method !== "POST" || !url) return false;
+  return new URL(url, "http://loopback").pathname === "/v1/messages";
+}
+
+async function readBody(request: Readable, maximum: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const value of request) {
+    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+    size += chunk.length;
+    if (size > maximum) throw new Error("request body exceeds Klauxy proxy limit");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+function sendInternalError(response: ServerResponse, error: unknown): void {
+  if (response.headersSent) {
+    response.destroy();
+    return;
+  }
+  const status = error instanceof Error && error.message.includes("exceeds") ? 413 : 502;
+  response.writeHead(status, { "content-type": "application/json" });
+  response.end(
+    JSON.stringify({
+      type: "error",
+      error: { type: "api_error", message: "Klauxy proxy request failed" },
+    }),
+  );
+}
+
+export async function startAnthropicProxy(options: AnthropicProxyOptions): Promise<AnthropicProxy> {
+  const upstream = new URL(options.upstream);
+  if (upstream.protocol !== "http:" && upstream.protocol !== "https:") {
+    throw new Error("Anthropic upstream must use HTTP or HTTPS");
+  }
+  const active = new Set<AbortController>();
+  const pendingHistory = new Set<Promise<void>>();
+  const server = createServer(async (request, response) => {
+    if (request.method === "GET" && request.url === "/__klauxy/health") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end('{"ok":true}');
+      return;
+    }
+    const controller = new AbortController();
+    active.add(controller);
+    const cancel = () => controller.abort();
+    request.once("aborted", cancel);
+    response.once("close", () => {
+      if (!response.writableEnded) cancel();
+    });
+    try {
+      const originalBody = await readBody(request, options.maxBodyBytes ?? 10 * 1024 * 1024);
+      let body = originalBody;
+      let history: HistoryEntry | undefined;
+      if (isMessagesRequest(request.method, request.url) && originalBody.length > 0) {
+        try {
+          const parsed = JSON.parse(originalBody.toString("utf8"));
+          const transformed = await transformMessagesBody(
+            parsed,
+            await options.readEnabled(),
+            options.translator,
+            controller.signal,
+          );
+          if (transformed.translated) body = Buffer.from(JSON.stringify(transformed.body));
+          history = transformed.history;
+        } catch {
+          body = originalBody;
+        }
+      }
+
+      const target = new URL(request.url ?? "/", upstream);
+      const method = request.method ?? "GET";
+      const upstreamResponse = await fetch(target, {
+        method,
+        headers: requestHeaders(request.headers, body.length),
+        body: method === "GET" || method === "HEAD" ? undefined : body,
+        redirect: "manual",
+        signal: controller.signal,
+      });
+      response.writeHead(
+        upstreamResponse.status,
+        upstreamResponse.statusText,
+        responseHeaders(upstreamResponse),
+      );
+      if (history && options.writeHistory) {
+        const write = options.writeHistory(history).catch(() => {
+          // History is diagnostic only and must never block an Anthropic response.
+        });
+        pendingHistory.add(write);
+        void write.finally(() => pendingHistory.delete(write));
+      }
+      if (!upstreamResponse.body || method === "HEAD") {
+        response.end();
+      } else {
+        await new Promise<void>((resolve, reject) => {
+          const stream = Readable.fromWeb(upstreamResponse.body as never);
+          stream.once("error", reject);
+          response.once("error", reject);
+          response.once("finish", resolve);
+          stream.pipe(response);
+        });
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) sendInternalError(response, error);
+    } finally {
+      active.delete(controller);
+    }
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(options.listen?.port ?? 0, options.listen?.host ?? "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Klauxy proxy has no TCP address");
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  if (new URL(baseUrl).origin === upstream.origin) {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    throw new Error("Anthropic upstream cannot be the Klauxy proxy itself");
+  }
+
+  let closing: Promise<void> | undefined;
+  return {
+    baseUrl,
+    close() {
+      closing ??= Promise.all([
+        new Promise<void>((resolve, reject) => {
+          for (const controller of active) controller.abort();
+          server.close((error) => (error ? reject(error) : resolve()));
+          server.closeAllConnections();
+        }),
+        Promise.all([...pendingHistory]),
+      ]).then(() => undefined);
+      return closing;
+    },
+  };
+}
