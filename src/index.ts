@@ -36,6 +36,7 @@ import {
   waitForProxy,
 } from "./proxy-service.js";
 import { installRuntime } from "./runtime-install.js";
+import { reloadHint, shellScanPaths, shellTargets } from "./shell.js";
 import { readState } from "./state.js";
 import { createStyle } from "./tui.js";
 
@@ -47,6 +48,16 @@ interface Manifest {
 
 function projectRoot(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..");
+}
+
+async function readVersion(): Promise<string> {
+  try {
+    const raw = await readFile(join(projectRoot(), "package.json"), "utf8");
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    return typeof parsed.version === "string" ? parsed.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
 }
 
 async function readManifest(path: string): Promise<Manifest> {
@@ -163,6 +174,8 @@ async function main(): Promise<number | undefined> {
     home,
     output: console.log,
     style: createStyle({ tty: process.stdout.isTTY === true, env: process.env }),
+    version: await readVersion(),
+    reloadHint: async () => reloadHint(await shellTargets(home), home),
     prompt: async (question: string) => {
       if (!process.stdin.isTTY) return null;
       const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -208,7 +221,7 @@ async function main(): Promise<number | undefined> {
         node: process.execPath,
         entry: installedEntry,
         upstream,
-        rcFiles: [join(home, ".zshrc")],
+        rcFiles: await shellTargets(home),
       });
       await installProxyService({
         path: paths.launchAgent,
@@ -238,7 +251,7 @@ async function main(): Promise<number | undefined> {
       );
       await uninstallProxyService(paths.launchAgent);
       await uninstallProxyService(home);
-      await uninstallShim({ home, rcFiles: [join(home, ".zshrc")] });
+      await uninstallShim({ home, rcFiles: await shellTargets(home) });
     },
     doctor: async () => {
       const paths = klauxyPaths(home);
@@ -254,7 +267,7 @@ async function main(): Promise<number | undefined> {
         }
       }
       const shellDefinitions = await Promise.all(
-        [join(home, ".zshrc"), join(home, ".bashrc")].map(async (path) => {
+        shellScanPaths(home).map(async (path) => {
           try {
             return await readFile(path, "utf8");
           } catch {

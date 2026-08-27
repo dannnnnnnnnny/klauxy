@@ -44,6 +44,52 @@ afterEach(async () => {
 });
 
 describe("Anthropic loopback proxy", () => {
+  it("answers 413 without stalling when the rewritten body exceeds the limit", async () => {
+    const upstream = await listen(() => ({ body: '{"ok":true}' }));
+    const proxy = await startAnthropicProxy({
+      upstream: new URL(upstream.url),
+      translator: { translate: vi.fn() },
+      readEnabled: async () => true,
+      maxBodyBytes: 1024,
+    });
+    servers.push(proxy);
+
+    const response = await fetch(`${proxy.baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: Buffer.alloc(8192, 0x61),
+    });
+
+    // Draining must continue past the cap, otherwise the client never sees this.
+    expect(response.status).toBe(413);
+    await response.arrayBuffer();
+  });
+
+  it("streams a large non-rewritten body through without applying the rewrite cap", async () => {
+    let received = 0;
+    const upstream = await listen((_request, body) => {
+      received = body.length;
+      return { body: '{"ok":true}' };
+    });
+    const proxy = await startAnthropicProxy({
+      upstream: new URL(upstream.url),
+      translator: { translate: vi.fn() },
+      readEnabled: async () => true,
+      maxBodyBytes: 1024,
+    });
+    servers.push(proxy);
+
+    const payload = Buffer.alloc(64 * 1024, 0x62);
+    const response = await fetch(`${proxy.baseUrl}/v1/files`, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: payload,
+    });
+
+    expect(response.status).toBe(200);
+    expect(received).toBe(payload.length);
+  });
+
   it("can bind a stable port and exposes a local health check", async () => {
     const proxy = await startAnthropicProxy({
       upstream: new URL("https://api.anthropic.com"),

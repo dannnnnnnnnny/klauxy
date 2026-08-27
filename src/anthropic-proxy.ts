@@ -29,7 +29,7 @@ const HOP_BY_HOP = new Set([
   "upgrade",
 ]);
 
-function requestHeaders(input: IncomingHttpHeaders, contentLength: number): Headers {
+function requestHeaders(input: IncomingHttpHeaders, contentLength: number | undefined): Headers {
   const output = new Headers();
   for (const [name, value] of Object.entries(input)) {
     const lower = name.toLowerCase();
@@ -46,7 +46,9 @@ function requestHeaders(input: IncomingHttpHeaders, contentLength: number): Head
       output.set(name, value);
     }
   }
-  if (contentLength > 0) output.set("content-length", String(contentLength));
+  if (contentLength !== undefined && contentLength > 0) {
+    output.set("content-length", String(contentLength));
+  }
   return output;
 }
 
@@ -66,20 +68,41 @@ function responseHeaders(response: Response): Record<string, string | string[]> 
   return output;
 }
 
+const MESSAGES_PATH = "/v1/messages";
+
+/**
+ * Recognises the one endpoint Klauxy rewrites.
+ *
+ * Compares the path prefix directly instead of constructing a URL: this runs on
+ * every proxied request, and allocating a URL only to read `pathname` showed up
+ * as avoidable work on the hot path.
+ */
 function isMessagesRequest(method: string | undefined, url: string | undefined): boolean {
-  if (method !== "POST" || !url) return false;
-  return new URL(url, "http://loopback").pathname === "/v1/messages";
+  if (method !== "POST" || url === undefined) return false;
+  if (!url.startsWith(MESSAGES_PATH)) return false;
+  const next = url.charCodeAt(MESSAGES_PATH.length);
+  // End of string, query, or fragment: anything else is a longer path segment.
+  return Number.isNaN(next) || next === 63 || next === 35;
 }
 
 async function readBody(request: Readable, maximum: number): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
+  let exceeded = false;
+  // Keep consuming after the limit trips. Abandoning an unread request stream
+  // stalls the client, which never sees the 413 the proxy is about to send.
   for await (const value of request) {
+    if (exceeded) continue;
     const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
     size += chunk.length;
-    if (size > maximum) throw new Error("request body exceeds Klauxy proxy limit");
+    if (size > maximum) {
+      exceeded = true;
+      chunks.length = 0;
+      continue;
+    }
     chunks.push(chunk);
   }
+  if (exceeded) throw new Error("request body exceeds Klauxy proxy limit");
   return Buffer.concat(chunks);
 }
 
@@ -119,31 +142,49 @@ export async function startAnthropicProxy(options: AnthropicProxyOptions): Promi
       if (!response.writableEnded) cancel();
     });
     try {
-      const originalBody = await readBody(request, options.maxBodyBytes ?? 10 * 1024 * 1024);
-      let body = originalBody;
+      const method = request.method ?? "GET";
+      const rewritable = isMessagesRequest(method, request.url);
       let history: HistoryEntry | undefined;
-      if (isMessagesRequest(request.method, request.url) && originalBody.length > 0) {
-        try {
-          const parsed = JSON.parse(originalBody.toString("utf8"));
-          const transformed = await transformMessagesBody(
-            parsed,
-            await options.readEnabled(),
-            options.translator,
-            controller.signal,
-          );
-          if (transformed.translated) body = Buffer.from(JSON.stringify(transformed.body));
-          history = transformed.history;
-        } catch {
-          body = originalBody;
+      let body: Buffer | Readable | undefined;
+      let contentLength: number | undefined;
+
+      if (rewritable) {
+        // Only the rewritten endpoint needs the whole body in memory.
+        const originalBody = await readBody(request, options.maxBodyBytes ?? 10 * 1024 * 1024);
+        body = originalBody;
+        contentLength = originalBody.length;
+        if (originalBody.length > 0) {
+          try {
+            const transformed = await transformMessagesBody(
+              JSON.parse(originalBody.toString("utf8")),
+              await options.readEnabled(),
+              options.translator,
+              controller.signal,
+            );
+            if (transformed.translated) {
+              const rewritten = Buffer.from(JSON.stringify(transformed.body));
+              body = rewritten;
+              contentLength = rewritten.length;
+            }
+            history = transformed.history;
+          } catch {
+            // Unparseable or untranslatable bodies are forwarded untouched.
+          }
         }
+      } else if (method !== "GET" && method !== "HEAD") {
+        // Everything else streams straight through, so large uploads such as
+        // file attachments never accumulate in the proxy.
+        body = request;
+        const declared = Number(request.headers["content-length"]);
+        contentLength = Number.isFinite(declared) ? declared : undefined;
       }
 
       const target = new URL(request.url ?? "/", upstream);
-      const method = request.method ?? "GET";
       const upstreamResponse = await fetch(target, {
         method,
-        headers: requestHeaders(request.headers, body.length),
-        body: method === "GET" || method === "HEAD" ? undefined : body,
+        headers: requestHeaders(request.headers, contentLength),
+        body: body as never,
+        ...(body === request ? { duplex: "half" } : {}),
         redirect: "manual",
         signal: controller.signal,
       });

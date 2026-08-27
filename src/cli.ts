@@ -1,4 +1,5 @@
 import { loadConfig, setConfigValue } from "./config.js";
+import { renderHelp, suggestCommand } from "./help.js";
 import { clearHistory, readHistory } from "./history.js";
 import { parseInitArgs, runInit } from "./init.js";
 import { klauxyPaths } from "./paths.js";
@@ -11,8 +12,12 @@ export interface CommandContext {
   home: string;
   output(line: string): void;
   style?: Style;
+  /** Package version, shown by `klx --version`. */
+  version?: string;
   prompt?(question: string): Promise<string | null>;
   install?(): Promise<void>;
+  /** Shell-specific reload instruction, resolved by the caller. */
+  reloadHint?(): Promise<string>;
   uninstall?(): Promise<void>;
   doctor?(): Promise<{ ok: boolean; lines: string[] }>;
 }
@@ -21,6 +26,17 @@ export async function runCommand(args: string[], context: CommandContext): Promi
   const paths = klauxyPaths(context.home);
   const style = context.style ?? plainStyle;
   const command = args[0];
+  const version = context.version ?? "0.0.0";
+
+  if (command === undefined || command === "help" || command === "--help" || command === "-h") {
+    for (const line of renderHelp(style, version)) context.output(line);
+    // A bare `klx` is a request for orientation, not a usage error.
+    return 0;
+  }
+  if (command === "--version" || command === "-v" || command === "version") {
+    context.output(version);
+    return 0;
+  }
   if (command === "init") {
     const parsed = parseInitArgs(args.slice(1));
     if ("error" in parsed) {
@@ -208,7 +224,8 @@ export async function runCommand(args: string[], context: CommandContext): Promi
     const config = await loadConfig(paths.config);
     context.output("");
     context.output([style.dim("  provider  "), config.translation.provider].join(""));
-    context.output(style.dim("  Restart your shell or run: source ~/.zshrc"));
+    const hint = context.reloadHint ? await context.reloadHint() : "Restart your shell";
+    context.output(style.dim(["  ", hint].join("")));
     context.output(style.dim("  Then enable translation: klx on"));
     return 0;
   }
@@ -229,8 +246,12 @@ export async function runCommand(args: string[], context: CommandContext): Promi
     }
     return result.ok ? 0 : 1;
   }
-  context.output(
-    "Usage: klx init|provider [<id>]|on|off|status|history [--last <count>|clear]|savings|config get|config set <key> <value>|doctor|install|uninstall",
-  );
+  context.output([style.mark("fail"), " Unknown command: ", style.bold(command)].join(""));
+  const suggestion = suggestCommand(command);
+  if (suggestion !== undefined) {
+    context.output(["", "Did you mean ", style.bold(["klx ", suggestion].join("")), "?"].join(""));
+  }
+  context.output("");
+  context.output(style.dim("Run klx --help to see all commands."));
   return 1;
 }

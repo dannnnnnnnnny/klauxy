@@ -23,7 +23,7 @@ describe("managed Claude shim installation", () => {
       node: "/usr/bin/node",
       entry: "/app/index.js",
       upstream: "http://127.0.0.1:8787",
-      rcFiles: [rc],
+      rcFiles: [{ path: rc, syntax: "posix" }],
     });
     await installShim({
       home,
@@ -31,7 +31,7 @@ describe("managed Claude shim installation", () => {
       node: "/usr/bin/node",
       entry: "/app/index.js",
       upstream: "http://127.0.0.1:8787",
-      rcFiles: [rc],
+      rcFiles: [{ path: rc, syntax: "posix" }],
     });
     const paths = klauxyPaths(home);
     expect(await readFile(paths.shim, "utf8")).toContain("__wrap-claude");
@@ -56,9 +56,9 @@ describe("managed Claude shim installation", () => {
       node: "/usr/bin/node",
       entry: "/app/index.js",
       upstream: "https://api.anthropic.com",
-      rcFiles: [rc],
+      rcFiles: [{ path: rc, syntax: "posix" }],
     });
-    await uninstallShim({ home, rcFiles: [rc] });
+    await uninstallShim({ home, rcFiles: [{ path: rc, syntax: "posix" }] });
     expect(await readFile(rc, "utf8")).toBe("export KEEP_ME=1\n");
     const paths = klauxyPaths(home);
     await expect(readFile(paths.shim, "utf8")).rejects.toThrow();

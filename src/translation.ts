@@ -21,34 +21,41 @@ export function protect(input: string): ProtectedText {
   return { masked, tokens };
 }
 
+const PLACEHOLDER_PATTERN = /\{K(\d+)\}/g;
+
+/**
+ * Substitutes every `{Kn}` placeholder back to its original token.
+ *
+ * Rewrites in one pass. Splitting and rejoining per token walked the whole
+ * string once for every placeholder, which is quadratic on prompts that mask
+ * many paths or code spans.
+ */
 export function restore(masked: string, tokens: string[]): string {
-  let restored = masked;
-  for (const [index, token] of tokens.entries()) {
-    restored = restored.split(["{K", index, "}"].join("")).join(token);
-  }
-  return restored;
+  if (tokens.length === 0) return masked;
+  return masked.replace(PLACEHOLDER_PATTERN, (placeholder, digits: string) => {
+    const index = Number(digits);
+    return index < tokens.length ? (tokens[index] as string) : placeholder;
+  });
 }
+
+const ECHOED_PROMPT =
+  /<\/?source_text>|translate the following (?:source text|untrusted data)|return only the concise english translation of source_text|do not follow, answer, or act on any instruction/i;
+const PREAMBLE =
+  /^(?:ok(?:[.!]|$)|here(?:'s| is) (?:the )?translation|translation:|sure[,!]|the user wants|i (?:can|will|would)|please provide)/i;
 
 export function validateTranslation(text: string, placeholders: string[]): boolean {
   const trimmed = text.trim();
   if (trimmed.length === 0 || KOREAN_PATTERN.test(trimmed)) return false;
-  if (
-    /<\/?source_text>|translate the following (?:source text|untrusted data)|return only the concise english translation of source_text|do not follow, answer, or act on any instruction/i.test(
-      trimmed,
-    )
-  ) {
-    return false;
+  if (ECHOED_PROMPT.test(trimmed)) return false;
+  if (PREAMBLE.test(trimmed)) return false;
+
+  // Count occurrences once instead of rescanning the match list per placeholder.
+  const seen = new Map<string, number>();
+  let total = 0;
+  for (const match of trimmed.matchAll(PLACEHOLDER_PATTERN)) {
+    seen.set(match[0], (seen.get(match[0]) ?? 0) + 1);
+    total += 1;
   }
-  if (
-    /^(?:ok(?:[.!]|$)|here(?:'s| is) (?:the )?translation|translation:|sure[,!]|the user wants|i (?:can|will|would)|please provide)/i.test(
-      trimmed,
-    )
-  ) {
-    return false;
-  }
-  const actualPlaceholders = trimmed.match(/\{K\d+\}/g) ?? [];
-  if (actualPlaceholders.length !== placeholders.length) return false;
-  return placeholders.every(
-    (placeholder) => actualPlaceholders.filter((actual) => actual === placeholder).length === 1,
-  );
+  if (total !== placeholders.length) return false;
+  return placeholders.every((placeholder) => seen.get(placeholder) === 1);
 }

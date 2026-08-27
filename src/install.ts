@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path";
 import { type HistoryEntry, readHistory } from "./history.js";
 import { klauxyPaths, legacyKagentPaths } from "./paths.js";
+import type { ShellTarget } from "./shell.js";
 
 const START = "# >>> klauxy >>>";
 const END = "# <<< klauxy <<<";
@@ -36,7 +37,7 @@ export interface InstallOptions {
   node: string;
   entry: string;
   upstream: string;
-  rcFiles: string[];
+  rcFiles: ShellTarget[];
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -181,11 +182,16 @@ async function writeManifest(options: InstallOptions): Promise<void> {
 
 async function writeRcBlock(options: InstallOptions): Promise<void> {
   const paths = klauxyPaths(options.home);
-  const block = [START, ['export PATH="', paths.binDir, ':$PATH"'].join(""), END].join("\n");
-  for (const rcFile of options.rcFiles) {
+  for (const target of options.rcFiles) {
+    // fish has no `export VAR=value`; it uses fish_add_path instead.
+    const line =
+      target.syntax === "fish"
+        ? ["fish_add_path -p ", paths.binDir].join("")
+        : ['export PATH="', paths.binDir, ':$PATH"'].join("");
+    const block = [START, line, END].join("\n");
     let current = "";
     try {
-      current = await readFile(rcFile, "utf8");
+      current = await readFile(target.path, "utf8");
     } catch {
       /* new rc file */
     }
@@ -193,7 +199,7 @@ async function writeRcBlock(options: InstallOptions): Promise<void> {
       .replace(BLOCK_PATTERN, "")
       .replace(LEGACY_BLOCK_PATTERN, "")
       .replace(/\n*$/, "\n");
-    await atomicWrite(rcFile, [cleaned, block, "\n"].join(""));
+    await atomicWrite(target.path, [cleaned, block, "\n"].join(""));
   }
 }
 
@@ -217,7 +223,10 @@ export async function removeLegacyLaunchAgent(home: string): Promise<void> {
   await rm(legacy.launchAgent, { force: true });
 }
 
-export async function uninstallShim(options: { home: string; rcFiles: string[] }): Promise<void> {
+export async function uninstallShim(options: {
+  home: string;
+  rcFiles: ShellTarget[];
+}): Promise<void> {
   const paths = klauxyPaths(options.home);
   await rm(paths.shim, { force: true });
   await rm(paths.shortCommandShim, { force: true });
@@ -226,12 +235,12 @@ export async function uninstallShim(options: { home: string; rcFiles: string[] }
   await rm(paths.globalBrandedCommandShim, { force: true });
   await rm(paths.manifest, { force: true });
   await rm(paths.installDir, { recursive: true, force: true });
-  for (const rcFile of options.rcFiles) {
+  for (const target of options.rcFiles) {
     try {
-      const current = await readFile(rcFile, "utf8");
+      const current = await readFile(target.path, "utf8");
       const cleaned = current.replace(BLOCK_PATTERN, "").replace(LEGACY_BLOCK_PATTERN, "");
       await atomicWrite(
-        rcFile,
+        target.path,
         cleaned.length > 0 && !cleaned.endsWith("\n") ? [cleaned, "\n"].join("") : cleaned,
       );
     } catch {

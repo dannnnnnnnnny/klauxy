@@ -11,7 +11,8 @@ third-party translation service. English prompts also cost fewer tokens.
 
 ## Requirements
 
-- macOS or Linux with zsh
+- macOS (Apple silicon or Intel) or Linux
+- zsh, bash, or fish
 - Node.js 20 or newer
 - Claude Code already installed and on your `PATH`
 - One local model server, which you start yourself: oMLX, Ollama, or OpenCode
@@ -20,7 +21,8 @@ Klauxy does not install a model server for you. `klx doctor` reports which of
 these are missing.
 
 Only the oMLX backend requires Apple silicon. On Intel Macs and Linux use
-`klx provider ollama`.
+`klx provider ollama`. `klx install` detects your shell and writes its PATH
+entry with the right syntax, including `fish_add_path` for fish.
 
 ## Quick start
 
@@ -67,6 +69,8 @@ the path intact.
 ## Command reference
 
 ```sh
+klx --help                    # grouped command overview
+klx --version                 # installed version
 klx init                      # choose the translation provider
 klx install                   # wrap the claude command and start the proxy
 klx uninstall                 # undo install and restore Claude settings

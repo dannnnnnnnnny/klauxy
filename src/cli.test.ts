@@ -165,6 +165,77 @@ describe("Klauxy commands", () => {
   });
 });
 
+describe("discoverability", () => {
+  it("shows help for a bare invocation and exits successfully", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(await runCommand([], { home, output: (line) => output.push(line) })).toBe(0);
+
+    const text = output.join("\n");
+    expect(text).toContain("klx <command>");
+    expect(text).toContain("init");
+    expect(text).toContain("savings");
+  });
+
+  it("accepts help, --help, and -h alike", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    for (const flag of ["help", "--help", "-h"]) {
+      const output: string[] = [];
+      expect(await runCommand([flag], { home, output: (line) => output.push(line) })).toBe(0);
+      expect(output.join("\n")).toContain("Usage:");
+    }
+  });
+
+  it("prints the version for --version and -v", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    for (const flag of ["--version", "-v", "version"]) {
+      const output: string[] = [];
+      expect(
+        await runCommand([flag], { home, output: (line) => output.push(line), version: "9.9.9" }),
+      ).toBe(0);
+      expect(output).toEqual(["9.9.9"]);
+    }
+  });
+
+  it("suggests a correction for a mistyped command and fails", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(await runCommand(["instal"], { home, output: (line) => output.push(line) })).toBe(1);
+
+    const text = output.join("\n");
+    expect(text).toContain("Unknown command: instal");
+    expect(text).toContain("klx install");
+  });
+
+  it("still fails cleanly when no command is close enough", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(await runCommand(["deploy"], { home, output: (line) => output.push(line) })).toBe(1);
+
+    const text = output.join("\n");
+    expect(text).toContain("Unknown command: deploy");
+    expect(text).not.toContain("Did you mean");
+    expect(text).toContain("klx --help");
+  });
+
+  it("reports the shell-specific reload hint after install", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    await runCommand(["install"], {
+      home,
+      output: (line) => output.push(line),
+      install: async () => {},
+      reloadHint: async () => "Restart your shell or run: source ~/.bashrc",
+    });
+
+    expect(output.join("\n")).toContain("source ~/.bashrc");
+  });
+});
+
 describe("provider command", () => {
   it("lists providers and marks the current one", async () => {
     const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
