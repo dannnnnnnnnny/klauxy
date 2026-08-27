@@ -23,3 +23,46 @@ describe("runtime state", () => {
     expect(await readState(path)).toEqual({ schema: 1, enabled: false, generation: 2 });
   });
 });
+describe("rejecting damaged state", () => {
+  async function statePath(): Promise<string> {
+    return join(await mkdtemp(join(tmpdir(), "klauxy-state-")), "state.json");
+  }
+
+  it("ignores a negative generation", async () => {
+    const path = await statePath();
+    await writeFile(path, JSON.stringify({ schema: 1, enabled: true, generation: -1 }), "utf8");
+
+    // A negative generation cannot have been written by Klauxy.
+    expect(await readState(path)).toEqual({ schema: 1, enabled: false, generation: 0 });
+  });
+
+  it("ignores a non-integer generation", async () => {
+    const path = await statePath();
+    await writeFile(path, JSON.stringify({ schema: 1, enabled: true, generation: 1.5 }), "utf8");
+
+    expect((await readState(path)).enabled).toBe(false);
+  });
+
+  it("ignores a missing generation", async () => {
+    const path = await statePath();
+    await writeFile(path, JSON.stringify({ schema: 1, enabled: true }), "utf8");
+
+    expect((await readState(path)).enabled).toBe(false);
+  });
+
+  it("ignores a future schema rather than guessing its shape", async () => {
+    const path = await statePath();
+    await writeFile(path, JSON.stringify({ schema: 2, enabled: true, generation: 3 }), "utf8");
+
+    expect((await readState(path)).enabled).toBe(false);
+  });
+
+  it("bumps generation on each write", async () => {
+    const path = await statePath();
+
+    const first = await writeEnabled(path, true);
+    const second = await writeEnabled(path, false);
+
+    expect(second.generation).toBe(first.generation + 1);
+  });
+});
