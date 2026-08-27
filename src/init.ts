@@ -1,4 +1,5 @@
-import { applyProvider, type Config, loadConfig, setConfigValue } from "./config.js";
+import { type Config, loadConfig } from "./config.js";
+import { applyChoice } from "./provider-apply.js";
 import {
   detectProviders,
   menuLine,
@@ -99,18 +100,11 @@ export async function runInit(
   }
 
   const definition = providerDefinition(selected);
-  const config = await loadConfig(deps.configPath);
-  applyProvider(config, selected);
-  const host = options.host ?? config.translation.host;
-  const model = options.model ?? config.translation.model;
-
-  await setConfigValue(deps.configPath, "translation.provider", selected);
-  if (host !== config.translation.host || options.host !== undefined) {
-    await setConfigValue(deps.configPath, "translation.host", host);
-  }
-  if (model !== config.translation.model || options.model !== undefined) {
-    await setConfigValue(deps.configPath, "translation.model", model);
-  }
+  const { host, model } = await applyChoice(deps.configPath, {
+    provider: selected,
+    ...(options.host === undefined ? {} : { host: options.host }),
+    ...(options.model === undefined ? {} : { model: options.model }),
+  });
 
   deps.output([style.dim("Provider "), style.bold(definition.label)].join(""));
   deps.output([style.dim("Host     "), host].join(""));
