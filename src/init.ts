@@ -1,5 +1,12 @@
 import { applyProvider, type Config, loadConfig, setConfigValue } from "./config.js";
 import {
+  detectProviders,
+  menuLine,
+  PROBE_TIMEOUT_MS,
+  resolveAnswer,
+  suggestedDefault,
+} from "./provider-select.js";
+import {
   isProviderId,
   PROVIDER_IDS,
   type ProbeResult,
@@ -46,13 +53,6 @@ export function parseInitArgs(args: string[]): InitOptions | { error: string } {
   return options;
 }
 
-const PROBE_TIMEOUT_MS = 2000;
-
-function describe(id: ProviderId): string {
-  const definition = providerDefinition(id);
-  return [definition.label, " - ", definition.description].join("");
-}
-
 export async function runInit(
   options: InitOptions,
   deps: InitDeps,
@@ -76,48 +76,26 @@ export async function runInit(
   if (selected === undefined) {
     deps.output(style.heading("Klauxy needs a local model to translate Korean prompts."));
     deps.output("");
-    const availability = await Promise.all(
-      PROVIDER_IDS.map(async (id) => {
-        const definition = providerDefinition(id);
-        const result = await probe(id, definition.defaultHost, PROBE_TIMEOUT_MS);
-        return { id, result };
-      }),
-    );
+    const availability = await detectProviders(probe);
     for (const [index, entry] of availability.entries()) {
-      const up = entry.result.reachable;
-      const status = up
-        ? [style.mark("ok"), " ", style.color("green", "detected")].join("")
-        : style.dim("not running");
-      deps.output(
-        [style.dim([index + 1, ")"].join("")), " ", describe(entry.id), "  ", status].join(""),
-      );
+      deps.output(menuLine(style, index, entry));
     }
     deps.output("");
-    const detected = availability.find((entry) => entry.result.reachable);
-    const fallback = detected?.id ?? "omlx";
+
+    const fallback = suggestedDefault(availability);
     const answer = await deps.prompt(
-      ["Select a provider [1-", PROVIDER_IDS.length, "] (default ", fallback, "): "].join(""),
+      `Select a provider [1-${PROVIDER_IDS.length}] (default ${fallback}): `,
     );
-    if (answer === null) {
-      deps.output(
-        ["No input available. Run: klx init --provider <", PROVIDER_IDS.join("|"), ">"].join(""),
-      );
+    const selection = resolveAnswer(answer, fallback);
+    if ("needsInput" in selection) {
+      deps.output(`No input available. Run: klx init --provider <${PROVIDER_IDS.join("|")}>`);
       return { code: 1 };
     }
-    const trimmed = answer.trim();
-    if (trimmed.length === 0) {
-      selected = fallback;
-    } else if (isProviderId(trimmed)) {
-      selected = trimmed;
-    } else {
-      const index = Number(trimmed);
-      const byIndex = Number.isSafeInteger(index) ? PROVIDER_IDS[index - 1] : undefined;
-      if (byIndex === undefined) {
-        deps.output(["Invalid selection: ", trimmed].join(""));
-        return { code: 1 };
-      }
-      selected = byIndex;
+    if ("error" in selection) {
+      deps.output(`Invalid selection: ${selection.error}`);
+      return { code: 1 };
     }
+    selected = selection.provider;
   }
 
   const definition = providerDefinition(selected);

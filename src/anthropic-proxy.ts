@@ -1,6 +1,7 @@
-import { createServer, type IncomingHttpHeaders, type ServerResponse } from "node:http";
+import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import type { HistoryEntry } from "./history.js";
+import { readBody, requestHeaders, responseHeaders, sendInternalError } from "./http-relay.js";
 import { transformMessagesBody } from "./message-transform.js";
 import type { Translator } from "./pipeline.js";
 
@@ -18,56 +19,6 @@ export interface AnthropicProxy {
   close(): Promise<void>;
 }
 
-const HOP_BY_HOP = new Set([
-  "connection",
-  "keep-alive",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-]);
-
-function requestHeaders(input: IncomingHttpHeaders, contentLength: number | undefined): Headers {
-  const output = new Headers();
-  for (const [name, value] of Object.entries(input)) {
-    const lower = name.toLowerCase();
-    if (
-      HOP_BY_HOP.has(lower) ||
-      lower === "host" ||
-      lower === "content-length" ||
-      value === undefined
-    )
-      continue;
-    if (Array.isArray(value)) {
-      for (const item of value) output.append(name, item);
-    } else {
-      output.set(name, value);
-    }
-  }
-  if (contentLength !== undefined && contentLength > 0) {
-    output.set("content-length", String(contentLength));
-  }
-  return output;
-}
-
-function responseHeaders(response: Response): Record<string, string | string[]> {
-  const output: Record<string, string | string[]> = {};
-  for (const [name, value] of response.headers) {
-    if (
-      !HOP_BY_HOP.has(name.toLowerCase()) &&
-      name.toLowerCase() !== "content-length" &&
-      name.toLowerCase() !== "content-encoding"
-    ) {
-      output[name] = value;
-    }
-  }
-  const cookies = response.headers.getSetCookie();
-  if (cookies.length > 0) output["set-cookie"] = cookies;
-  return output;
-}
-
 const MESSAGES_PATH = "/v1/messages";
 
 /**
@@ -83,42 +34,6 @@ function isMessagesRequest(method: string | undefined, url: string | undefined):
   const next = url.charCodeAt(MESSAGES_PATH.length);
   // End of string, query, or fragment: anything else is a longer path segment.
   return Number.isNaN(next) || next === 63 || next === 35;
-}
-
-async function readBody(request: Readable, maximum: number): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  let exceeded = false;
-  // Keep consuming after the limit trips. Abandoning an unread request stream
-  // stalls the client, which never sees the 413 the proxy is about to send.
-  for await (const value of request) {
-    if (exceeded) continue;
-    const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-    size += chunk.length;
-    if (size > maximum) {
-      exceeded = true;
-      chunks.length = 0;
-      continue;
-    }
-    chunks.push(chunk);
-  }
-  if (exceeded) throw new Error("request body exceeds Klauxy proxy limit");
-  return Buffer.concat(chunks);
-}
-
-function sendInternalError(response: ServerResponse, error: unknown): void {
-  if (response.headersSent) {
-    response.destroy();
-    return;
-  }
-  const status = error instanceof Error && error.message.includes("exceeds") ? 413 : 502;
-  response.writeHead(status, { "content-type": "application/json" });
-  response.end(
-    JSON.stringify({
-      type: "error",
-      error: { type: "api_error", message: "Klauxy proxy request failed" },
-    }),
-  );
 }
 
 export async function startAnthropicProxy(options: AnthropicProxyOptions): Promise<AnthropicProxy> {
