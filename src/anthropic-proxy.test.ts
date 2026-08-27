@@ -478,3 +478,93 @@ describe("Anthropic loopback proxy", () => {
     ).resolves.toBeUndefined();
   });
 });
+describe("proxy startup guards", () => {
+  it("rejects an upstream that is not HTTP", async () => {
+    await expect(
+      startAnthropicProxy({
+        upstream: new URL("ftp://example.com"),
+        translator: { translate: vi.fn() },
+        readEnabled: async () => false,
+      }),
+    ).rejects.toThrow("HTTP or HTTPS");
+  });
+
+  it("accepts an HTTPS upstream", async () => {
+    const proxy = await startAnthropicProxy({
+      upstream: new URL("https://api.anthropic.com"),
+      translator: { translate: vi.fn() },
+      readEnabled: async () => false,
+    });
+    servers.push(proxy);
+
+    expect(proxy.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+  });
+
+  it("refuses to forward to itself, which would loop forever", async () => {
+    const first = await startAnthropicProxy({
+      upstream: new URL("https://api.anthropic.com"),
+      translator: { translate: vi.fn() },
+      readEnabled: async () => false,
+    });
+    servers.push(first);
+
+    await expect(
+      startAnthropicProxy({
+        upstream: new URL(first.baseUrl),
+        translator: { translate: vi.fn() },
+        readEnabled: async () => false,
+        listen: { host: "127.0.0.1", port: Number(new URL(first.baseUrl).port) },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("closes idempotently", async () => {
+    const proxy = await startAnthropicProxy({
+      upstream: new URL("https://api.anthropic.com"),
+      translator: { translate: vi.fn() },
+      readEnabled: async () => false,
+    });
+
+    await expect(proxy.close()).resolves.toBeUndefined();
+    await expect(proxy.close()).resolves.toBeUndefined();
+  });
+});
+
+describe("forwarding request methods", () => {
+  it("answers a HEAD request with headers and no body", async () => {
+    const upstream = await listen(() => ({
+      headers: { "content-type": "application/json", "x-marker": "seen" },
+      body: '{"ok":true}',
+    }));
+    const proxy = await startAnthropicProxy({
+      upstream: new URL(upstream.url),
+      translator: { translate: vi.fn() },
+      readEnabled: async () => false,
+    });
+    servers.push(proxy);
+
+    const response = await fetch(`${proxy.baseUrl}/v1/models`, { method: "HEAD" });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-marker")).toBe("seen");
+    expect(await response.text()).toBe("");
+  });
+
+  it("forwards a DELETE without a body", async () => {
+    let method = "";
+    const upstream = await listen((request) => {
+      method = request.method ?? "";
+      return { body: "{}" };
+    });
+    const proxy = await startAnthropicProxy({
+      upstream: new URL(upstream.url),
+      translator: { translate: vi.fn() },
+      readEnabled: async () => false,
+    });
+    servers.push(proxy);
+
+    await fetch(`${proxy.baseUrl}/v1/messages/abc`, { method: "DELETE" });
+
+    expect(method).toBe("DELETE");
+  });
+});
