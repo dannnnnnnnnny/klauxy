@@ -452,6 +452,63 @@ describe("try command", () => {
     expect(text).toContain("oMLX");
   });
 
+  it("wraps a long sample under a hanging indent on a narrow terminal", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+    const long =
+      "이 프로젝트의 인증 미들웨어와 세션 저장소 구현을 검토하고 리팩터링 방향을 제안해줘";
+
+    await runCommand(["try", long], {
+      home,
+      output: (line) => output.push(line),
+      columns: 50,
+      createTranslator: () => ({
+        translate: async () =>
+          "Review the authentication middleware and session store implementation and propose a refactoring direction.",
+      }),
+    });
+
+    // Wrapped continuations are indented to line up under the label.
+    const continuations = output.filter(
+      (line) => line.startsWith("    ") && line.trim().length > 0,
+    );
+    expect(continuations.length).toBeGreaterThan(0);
+    expect(output.every((line) => line.length <= 60)).toBe(true);
+  });
+
+  it("keeps a short sample on one line on a wide terminal", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    await runCommand(["try", "짧게"], {
+      home,
+      output: (line) => output.push(line),
+      columns: 100,
+      createTranslator: () => ({ translate: async () => "Briefly." }),
+    });
+
+    expect(output.filter((line) => line.startsWith("    ") && line.trim().length > 0)).toHaveLength(
+      0,
+    );
+  });
+
+  it("wraps long history entries too", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    await appendHistory(klauxyPaths(home).history, {
+      schema: 1,
+      timestamp: "2026-08-26T12:00:00.000Z",
+      status: "translated",
+      durationMs: 900,
+      original: "이 프로젝트의 인증 미들웨어와 세션 저장소 구현을 검토하고 방향을 제안해줘",
+      sent: "Review the authentication middleware and session store implementation and propose a direction.",
+    });
+    const output: string[] = [];
+
+    await runCommand(["history"], { home, output: (line) => output.push(line), columns: 50 });
+
+    expect(output.some((line) => line.startsWith("      "))).toBe(true);
+  });
+
   it("accepts custom sample text", async () => {
     const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
     const output: string[] = [];
