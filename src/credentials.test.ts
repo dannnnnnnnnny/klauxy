@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { ChatTranslator } from "./chat-translator.js";
-import { probeProvider, providerApiKey } from "./providers.js";
+import { createTranslator, probeProvider, providerApiKey } from "./providers.js";
 
 const CANARY = "sk-canary-must-never-appear";
 
@@ -215,5 +215,53 @@ describe("cancellation before a request starts", () => {
 
     // Ambiguous output must not be silently truncated to one fragment.
     await expect(new ChatTranslator(options(fake.host)).translate("안녕")).resolves.toBe(echoed);
+  });
+});
+describe("translator construction with and without a key", () => {
+  const base = {
+    host: "http://127.0.0.1:1",
+    model: "m",
+    timeout_ms: 100,
+    max_tokens: 32,
+    system_prompt: "Translate only.",
+  };
+
+  it("attaches the key for a provider that declares one", () => {
+    process.env.KLAUXY_API_KEY = CANARY;
+    try {
+      const translator = createTranslator({ ...base, provider: "openai-compatible" });
+
+      // The key rides on the instance, never in config.
+      expect(JSON.stringify(translator)).toContain(CANARY);
+    } finally {
+      delete process.env.KLAUXY_API_KEY;
+    }
+  });
+
+  it("omits the key for a provider that declares none", () => {
+    process.env.KLAUXY_API_KEY = CANARY;
+    try {
+      const translator = createTranslator({ ...base, provider: "ollama" });
+
+      expect(JSON.stringify(translator)).not.toContain(CANARY);
+    } finally {
+      delete process.env.KLAUXY_API_KEY;
+    }
+  });
+
+  it("omits the key when the environment does not set it", () => {
+    delete process.env.KLAUXY_API_KEY;
+
+    const translator = createTranslator({ ...base, provider: "openai-compatible" });
+
+    expect(JSON.stringify(translator)).not.toContain("api_key");
+  });
+
+  it("carries provider-specific body fields only where declared", () => {
+    const omlx = JSON.stringify(createTranslator({ ...base, provider: "omlx" }));
+    const ollama = JSON.stringify(createTranslator({ ...base, provider: "ollama" }));
+
+    expect(omlx).toContain("enable_thinking");
+    expect(ollama).not.toContain("enable_thinking");
   });
 });

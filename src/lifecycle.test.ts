@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { doctor, type Environment, install, uninstall } from "./lifecycle.js";
-import { klauxyPaths } from "./paths.js";
+import { klauxyPaths, legacyKagentPaths } from "./paths.js";
 
 async function home(): Promise<string> {
   return mkdtemp(join(tmpdir(), "klauxy-lifecycle-"));
@@ -208,5 +208,80 @@ describe("uninstall", () => {
 
     await expect(readFile(paths.shim, "utf8")).rejects.toThrow();
     await expect(readFile(paths.serviceFile, "utf8")).rejects.toThrow();
+  });
+});
+describe("locating the real Claude binary", () => {
+  it("prefers a path recorded by a previous KAgent install", async () => {
+    const root = await home();
+    const legacy = legacyKagentPaths(root);
+    await mkdir(legacy.configDir, { recursive: true });
+    await writeFile(legacy.manifest, JSON.stringify({ realClaude: "/legacy/bin/claude" }), "utf8");
+    const source = join(root, "build");
+    await mkdir(join(source, "dist"), { recursive: true });
+    await writeFile(join(source, "dist", "index.js"), "// entry\n", "utf8");
+    await writeFile(join(source, "package.json"), '{"name":"klauxy","version":"0.1.0"}', "utf8");
+
+    await install(
+      makeEnvironment(root, {
+        projectRoot: source,
+        path: "/nonexistent-bin",
+        run: async () => {},
+        waitForProxy: async () => {},
+      }),
+    );
+
+    // The recorded path wins, so a PATH without claude is still enough.
+    expect(JSON.parse(await readFile(klauxyPaths(root, "darwin").manifest, "utf8"))).toMatchObject({
+      realClaude: "/legacy/bin/claude",
+    });
+  });
+
+  it("falls back to a PATH scan when the legacy manifest has no path", async () => {
+    const root = await home();
+    const legacy = legacyKagentPaths(root);
+    await mkdir(legacy.configDir, { recursive: true });
+    await writeFile(legacy.manifest, JSON.stringify({ entry: "/old/index.js" }), "utf8");
+    const source = join(root, "build");
+    await mkdir(join(source, "dist"), { recursive: true });
+    await writeFile(join(source, "dist", "index.js"), "// entry\n", "utf8");
+    await writeFile(join(source, "package.json"), '{"name":"klauxy","version":"0.1.0"}', "utf8");
+    const bin = join(root, "bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(bin, "claude"), "#!/bin/sh\n", { mode: 0o755 });
+
+    await install(
+      makeEnvironment(root, {
+        projectRoot: source,
+        path: bin,
+        run: async () => {},
+        waitForProxy: async () => {},
+      }),
+    );
+
+    expect(JSON.parse(await readFile(klauxyPaths(root, "darwin").manifest, "utf8"))).toMatchObject({
+      realClaude: join(bin, "claude"),
+    });
+  });
+
+  it("skips staging when already running from the install directory", async () => {
+    const root = await home();
+    const paths = klauxyPaths(root, "darwin");
+    await mkdir(join(paths.installDir, "dist"), { recursive: true });
+    await writeFile(join(paths.installDir, "dist", "index.js"), "// staged\n", "utf8");
+    const bin = join(root, "bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(join(bin, "claude"), "#!/bin/sh\n", { mode: 0o755 });
+
+    // projectRoot === installDir means installRuntime must not copy onto itself.
+    await install(
+      makeEnvironment(root, {
+        projectRoot: paths.installDir,
+        path: bin,
+        run: async () => {},
+        waitForProxy: async () => {},
+      }),
+    );
+
+    expect(await readFile(join(paths.installDir, "dist", "index.js"), "utf8")).toContain("staged");
   });
 });
