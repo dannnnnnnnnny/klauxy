@@ -53,7 +53,7 @@ describe("Anthropic loopback proxy", () => {
     });
     servers.push(proxy);
 
-    const response = await fetch(`${proxy.baseUrl}/__kagent/health`);
+    const response = await fetch(`${proxy.baseUrl}/__klauxy/health`);
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true });

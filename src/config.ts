@@ -1,12 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import TOML from "@iarna/toml";
-import {
-  isProviderId,
-  PROVIDER_IDS,
-  type ProviderId,
-  providerDefinition,
-} from "./providers.js";
+import { isProviderId, PROVIDER_IDS, type ProviderId, providerDefinition } from "./providers.js";
 
 export interface Config {
   translation: {

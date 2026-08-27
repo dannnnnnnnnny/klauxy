@@ -144,10 +144,7 @@ describe("init", () => {
         ? { reachable: true, models: ["qwen2.5:7b"] }
         : { reachable: false, models: [], error: "down" };
 
-    await runInit(
-      {},
-      { configPath: path, output: () => {}, prompt: async () => "", probe },
-    );
+    await runInit({}, { configPath: path, output: () => {}, prompt: async () => "", probe });
 
     expect((await loadConfig(path)).translation.provider).toBe("ollama");
   });

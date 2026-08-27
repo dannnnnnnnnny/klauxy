@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readHistory } from "./history.js";
 import {
@@ -137,12 +137,8 @@ describe("migration from legacy KAgent", () => {
       sent: "Hello",
     });
 
-    await writeFile(legacy.history, `${legacyEntry}
-    await writeFile(canonical.history, `${canonicalEntry}
-`, "utf8");
-    await writeFile(canonical.history, `${canonicalEntry}
-`, "utf8");
-    await writeFile(canonical.history, canonicalEntry + "\n", "utf8");
+    await writeFile(legacy.history, [legacyEntry, dupEntry, ""].join("\n"), "utf8");
+    await writeFile(canonical.history, [canonicalEntry, ""].join("\n"), "utf8");
 
     await migrateLegacyKagent(home);
 
@@ -162,6 +158,7 @@ describe("legacy cleanup", () => {
     const home = await mkdtemp(join(tmpdir(), "klauxy-cleanup-"));
     const legacy = legacyKagentPaths(home);
     await mkdir(legacy.binDir, { recursive: true });
+    await mkdir(dirname(legacy.globalCommandShim), { recursive: true });
     await writeFile(legacy.commandShim, "#!/bin/sh\n", "utf8");
     await writeFile(legacy.globalCommandShim, "#!/bin/sh\n", "utf8");
     await writeFile(legacy.shim, "#!/bin/sh\n", "utf8");

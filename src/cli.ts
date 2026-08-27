@@ -22,7 +22,9 @@ export async function runCommand(args: string[], context: CommandContext): Promi
     const parsed = parseInitArgs(args.slice(1));
     if ("error" in parsed) {
       context.output(parsed.error);
-      context.output("Usage: klx init [--provider <omlx|ollama|opencode>] [--host <url>] [--model <id>]");
+      context.output(
+        "Usage: klx init [--provider <omlx|ollama|opencode>] [--host <url>] [--model <id>]",
+      );
       return 1;
     }
     const result = await runInit(parsed, {
@@ -167,6 +169,10 @@ export async function runCommand(args: string[], context: CommandContext): Promi
   if (command === "install" && context.install) {
     await context.install();
     context.output("Klauxy installed. Restart your shell or run: source ~/.zshrc");
+    const config = await loadConfig(paths.config);
+    context.output(
+      ["Translation provider: ", config.translation.provider, " (change with: klx init)"].join(""),
+    );
     return 0;
   }
   if (command === "uninstall" && context.uninstall) {

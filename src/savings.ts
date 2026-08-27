@@ -68,13 +68,14 @@ export function estimateSavingsFromText(original: string, sent: string): Savings
 }
 
 export function buildSavingsGauge(percent: number): string {
-  const clamped = Math.max(0, Math.min(100, percent));
+  const safe = Number.isFinite(percent) ? percent : 0;
+  const clamped = Math.max(0, Math.min(100, safe));
   const width = 40;
   const filled = Math.round((clamped / 100) * width);
   const empty = width - filled;
   const bar = `[${"█".repeat(filled)}${"░".repeat(empty)}]`;
-  if (percent <= 0) {
+  if (clamped <= 0) {
     return `  0% ${bar} 100%  (no savings)`;
   }
-  return `  0% ${bar} 100%  (+${percent}%)`;
+  return `  0% ${bar} 100%  (+${clamped}%)`;
 }

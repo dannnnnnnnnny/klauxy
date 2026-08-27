@@ -1,4 +1,4 @@
-import { type Config, applyProvider, loadConfig, setConfigValue } from "./config.js";
+import { applyProvider, type Config, loadConfig, setConfigValue } from "./config.js";
 import {
   isProviderId,
   PROVIDER_IDS,
@@ -58,7 +58,9 @@ export async function runInit(
 
   if (options.provider !== undefined && !isProviderId(options.provider)) {
     deps.output(
-      ["Unknown provider: ", options.provider, ". Expected ", PROVIDER_IDS.join(", "), "."].join(""),
+      ["Unknown provider: ", options.provider, ". Expected ", PROVIDER_IDS.join(", "), "."].join(
+        "",
+      ),
     );
     return { code: 1 };
   }

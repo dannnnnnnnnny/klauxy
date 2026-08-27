@@ -19,9 +19,7 @@ export class OmlxTranslator extends ChatTranslator {
       ...options,
       chat_path: PROVIDERS.omlx.chatPath,
       label: "oMLX",
-      ...(PROVIDERS.omlx.extraBody === undefined
-        ? {}
-        : { extra_body: PROVIDERS.omlx.extraBody }),
+      ...(PROVIDERS.omlx.extraBody === undefined ? {} : { extra_body: PROVIDERS.omlx.extraBody }),
     });
   }
 }
