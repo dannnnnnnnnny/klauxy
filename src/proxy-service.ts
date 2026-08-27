@@ -7,6 +7,7 @@ import { LEGACY_KAGENT_PROXY_LABEL } from "./paths.js";
 export const PROXY_HOST = "127.0.0.1";
 export const PROXY_PORT = 18789;
 export const PROXY_LABEL = "com.klauxy.proxy";
+export const SYSTEMD_UNIT = "klauxy-proxy.service";
 
 const execFileAsync = promisify(execFile);
 
@@ -51,6 +52,30 @@ function domain(): string {
   return `gui/${process.getuid?.() ?? 0}`;
 }
 
+/**
+ * systemd user unit used on Linux.
+ *
+ * The proxy must outlive any single `claude` invocation so background workers
+ * reach the same translation endpoint, which is the same reason macOS gets a
+ * LaunchAgent. `default.target` keeps it a per-user service with no root.
+ */
+export function systemdUnit(options: { node: string; entry: string; home: string }): string {
+  return `[Unit]
+Description=Klauxy Anthropic translation proxy
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=${options.node} ${options.entry} __proxy-daemon ${options.home}
+Environment=HOME=${options.home}
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=default.target
+`;
+}
+
 async function ignoreFailure(command: string, args: string[]): Promise<void> {
   try {
     await execFileAsync(command, args);
@@ -84,9 +109,23 @@ export async function installProxyService(options: {
   home: string;
   stdout: string;
   stderr: string;
+  platform?: NodeJS.Platform;
 }): Promise<void> {
   await mkdir(dirname(options.path), { recursive: true, mode: 0o700 });
   await mkdir(dirname(options.stdout), { recursive: true, mode: 0o700 });
+  if ((options.platform ?? process.platform) === "linux") {
+    await writeFile(options.path, systemdUnit(options), { mode: 0o600 });
+    await ignoreFailure("systemctl", ["--user", "daemon-reload"]);
+    await ignoreFailure("systemctl", ["--user", "enable", SYSTEMD_UNIT]);
+    await retryCommand(
+      async () => {
+        await execFileAsync("systemctl", ["--user", "restart", SYSTEMD_UNIT]);
+      },
+      () => new Promise((resolve) => setTimeout(resolve, 250)),
+      20,
+    );
+    return;
+  }
   await writeFile(options.path, launchAgentPlist(options), { mode: 0o600 });
   await ignoreFailure("launchctl", ["bootout", `${domain()}/${PROXY_LABEL}`]);
   await retryCommand(
@@ -99,7 +138,16 @@ export async function installProxyService(options: {
   await execFileAsync("launchctl", ["kickstart", "-k", `${domain()}/${PROXY_LABEL}`]);
 }
 
-export async function uninstallProxyService(path: string): Promise<void> {
+export async function uninstallProxyService(
+  path: string,
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
+  if (platform === "linux") {
+    await ignoreFailure("systemctl", ["--user", "disable", "--now", SYSTEMD_UNIT]);
+    await rm(path, { force: true });
+    await ignoreFailure("systemctl", ["--user", "daemon-reload"]);
+    return;
+  }
   await ignoreFailure("launchctl", ["bootout", `${domain()}/${PROXY_LABEL}`]);
   await rm(path, { force: true });
 }

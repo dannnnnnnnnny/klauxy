@@ -54,13 +54,20 @@ export interface KlauxyPaths {
   installDir: string;
   claudeSettings: string;
   launchAgent: string;
+  /** Supervisor definition: LaunchAgent plist on macOS, systemd unit on Linux. */
+  serviceFile: string;
   proxyLog: string;
   proxyErrorLog: string;
 }
 
-export function klauxyPaths(home: string): KlauxyPaths {
+export function klauxyPaths(
+  home: string,
+  platform: NodeJS.Platform = process.platform,
+): KlauxyPaths {
   const configDir = join(home, ".config", "klauxy");
   const binDir = join(home, ".klauxy", "bin");
+  const launchAgent = join(home, "Library", "LaunchAgents", "com.klauxy.proxy.plist");
+  const systemdUnitPath = join(home, ".config", "systemd", "user", "klauxy-proxy.service");
   return {
     configDir,
     config: join(configDir, "config.toml"),
@@ -76,7 +83,8 @@ export function klauxyPaths(home: string): KlauxyPaths {
     globalBrandedCommandShim: join(home, ".local", "bin", "klauxy"),
     installDir: join(home, ".local", "share", "klauxy"),
     claudeSettings: join(home, ".claude", "settings.json"),
-    launchAgent: join(home, "Library", "LaunchAgents", "com.klauxy.proxy.plist"),
+    launchAgent,
+    serviceFile: platform === "linux" ? systemdUnitPath : launchAgent,
     proxyLog: join(configDir, "proxy.log"),
     proxyErrorLog: join(configDir, "proxy.err.log"),
   };

@@ -3,7 +3,8 @@ import { klauxyPaths, legacyKagentPaths } from "./paths.js";
 
 describe("Klauxy paths", () => {
   it("keeps configuration, state, shim, and runtime files separate", () => {
-    expect(klauxyPaths("/tmp/home")).toEqual({
+    // Pin the platform so this stays deterministic on Linux CI.
+    expect(klauxyPaths("/tmp/home", "darwin")).toEqual({
       configDir: "/tmp/home/.config/klauxy",
       config: "/tmp/home/.config/klauxy/config.toml",
       state: "/tmp/home/.config/klauxy/state.json",
@@ -19,9 +20,24 @@ describe("Klauxy paths", () => {
       installDir: "/tmp/home/.local/share/klauxy",
       claudeSettings: "/tmp/home/.claude/settings.json",
       launchAgent: "/tmp/home/Library/LaunchAgents/com.klauxy.proxy.plist",
+      serviceFile: "/tmp/home/Library/LaunchAgents/com.klauxy.proxy.plist",
       proxyLog: "/tmp/home/.config/klauxy/proxy.log",
       proxyErrorLog: "/tmp/home/.config/klauxy/proxy.err.log",
     });
+  });
+
+  it("uses a systemd user unit path on Linux", () => {
+    const paths = klauxyPaths("/tmp/home", "linux");
+
+    expect(paths.serviceFile).toBe("/tmp/home/.config/systemd/user/klauxy-proxy.service");
+    // The macOS path stays available so uninstall can clean up after a move.
+    expect(paths.launchAgent).toBe("/tmp/home/Library/LaunchAgents/com.klauxy.proxy.plist");
+  });
+
+  it("uses the LaunchAgent path on macOS", () => {
+    expect(klauxyPaths("/tmp/home", "darwin").serviceFile).toBe(
+      "/tmp/home/Library/LaunchAgents/com.klauxy.proxy.plist",
+    );
   });
 });
 

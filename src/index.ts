@@ -224,7 +224,7 @@ async function main(): Promise<number | undefined> {
         rcFiles: await shellTargets(home),
       });
       await installProxyService({
-        path: paths.launchAgent,
+        path: paths.serviceFile,
         node: process.execPath,
         entry: installedEntry,
         home,
@@ -249,8 +249,7 @@ async function main(): Promise<number | undefined> {
         paths.claudeSettingsBackup,
         proxyBaseUrl(),
       );
-      await uninstallProxyService(paths.launchAgent);
-      await uninstallProxyService(home);
+      await uninstallProxyService(paths.serviceFile);
       await uninstallShim({ home, rcFiles: await shellTargets(home) });
     },
     doctor: async () => {
