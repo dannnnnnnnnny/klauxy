@@ -1,5 +1,6 @@
 import type { HistoryEntry } from "./history.js";
 import { type Translator, translatePrompt } from "./pipeline.js";
+import { packBlocks, unpackBlocks } from "./text-blocks.js";
 import { needsTranslation } from "./translation.js";
 
 export interface MessageTransformResult {
@@ -52,10 +53,6 @@ function isInternalAgentPayload(text: string): boolean {
     }
   }
   return true;
-}
-
-function separator(index: number): string {
-  return [`\n\n\`KLAUXY_TEXT_BLOCK_`, index, "`\n\n"].join("");
 }
 
 export async function transformMessagesBody(
@@ -111,10 +108,7 @@ export async function transformMessagesBody(
   )
     return passThrough();
 
-  const combined = texts
-    .map((text, index) => (index === 0 ? text : separator(index - 1) + text))
-    .join("");
-  const result = await translatePrompt(combined, true, translator, signal);
+  const result = await translatePrompt(packBlocks(texts), true, translator, signal);
   if (!result.translated) {
     return {
       ...passThrough(result.failure),
@@ -130,19 +124,9 @@ export async function transformMessagesBody(
     };
   }
 
-  const translatedTexts: string[] = [];
-  let remaining = result.text;
-  for (let index = 0; index < texts.length - 1; index++) {
-    const marker = separator(index);
-    const parts = remaining.split(marker);
-    if (parts.length !== 2) return passThrough("invalid translated text block boundaries");
-    translatedTexts.push(parts[0].trim());
-    remaining = parts[1];
-  }
-  translatedTexts.push(remaining.trim());
-  if (translatedTexts.some((text) => text.length === 0)) {
-    return passThrough("empty translated text block");
-  }
+  const unpacked = unpackBlocks(result.text, texts.length);
+  if ("error" in unpacked) return passThrough(unpacked.error);
+  const translatedTexts = unpacked.texts;
 
   const nextBlocks = [...blocks];
   for (const [position, blockIndex] of textIndexes.entries()) {
