@@ -81,3 +81,50 @@ export function classifyDiagnostic(line: string): "ok" | "fail" | "warn" | undef
   if (/:\s*ok\b|\(ok\)/i.test(line)) return "ok";
   return undefined;
 }
+
+export const DEFAULT_WIDTH = 80;
+export const MIN_WIDTH = 40;
+
+/**
+ * Usable line width for wrapped output.
+ *
+ * Clamped at both ends: very narrow terminals would wrap prompts into unreadable
+ * slivers, and very wide ones make long Korean prompts hard to scan.
+ */
+export function terminalWidth(columns: number | undefined): number {
+  if (columns === undefined || !Number.isFinite(columns) || columns <= 0) return DEFAULT_WIDTH;
+  return Math.min(Math.max(Math.floor(columns), MIN_WIDTH), 100);
+}
+
+/**
+ * Wraps text to `width` columns on whitespace, preserving existing newlines.
+ *
+ * Words longer than the limit (URLs, long paths) are left intact rather than
+ * split, because breaking them makes the value impossible to copy.
+ */
+export function wrap(text: string, width: number): string[] {
+  // Callers subtract indent from an already-clamped width, so honour the value
+  // they pass and only guard against a nonsensical one.
+  const limit = width > 0 ? Math.floor(width) : DEFAULT_WIDTH;
+  const lines: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    if (paragraph.length <= limit) {
+      lines.push(paragraph);
+      continue;
+    }
+    let current = "";
+    for (const word of paragraph.split(/\s+/)) {
+      if (word.length === 0) continue;
+      if (current.length === 0) {
+        current = word;
+      } else if (current.length + 1 + word.length <= limit) {
+        current = [current, word].join(" ");
+      } else {
+        lines.push(current);
+        current = word;
+      }
+    }
+    if (current.length > 0) lines.push(current);
+  }
+  return lines.length > 0 ? lines : [""];
+}

@@ -7,6 +7,7 @@ import { loadConfig } from "./config.js";
 import { appendHistory } from "./history.js";
 import { klauxyPaths } from "./paths.js";
 import { readState } from "./state.js";
+import { createStyle } from "./tui.js";
 
 describe("Klauxy commands", () => {
   it("toggles persistent state and reports status", async () => {
@@ -427,6 +428,41 @@ describe("provider command", () => {
     ).toBe(1);
     expect(output.join("\n")).toContain("Unknown provider: gpt4");
     expect((await loadConfig(klauxyPaths(home).config)).translation.provider).toBe("omlx");
+  });
+
+  it("uses the injected probe when switching, not a live network call", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+    let probed = 0;
+
+    const code = await runCommand(["provider", "ollama"], {
+      home,
+      output: (line) => output.push(line),
+      probe: async () => {
+        probed += 1;
+        return { reachable: true, models: ["qwen2.5:7b"] };
+      },
+    });
+
+    // Before the handlers were split, this path dropped probe and style, so a
+    // switch always hit the network and printed unstyled output.
+    expect(code).toBe(0);
+    expect(probed).toBeGreaterThan(0);
+    expect(output.join("\n")).toContain("reachable");
+  });
+
+  it("applies the caller's style when switching provider", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    await runCommand(["provider", "ollama"], {
+      home,
+      output: (line) => output.push(line),
+      style: createStyle({ tty: true, env: {} }),
+      probe: async () => ({ reachable: true, models: ["qwen2.5:7b"] }),
+    });
+
+    expect(output.join("\n")).toContain("\u001b[");
   });
 
   it("passes host and model overrides through", async () => {

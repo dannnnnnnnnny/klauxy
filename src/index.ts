@@ -168,6 +168,7 @@ async function main(): Promise<number | undefined> {
     home,
     output: console.log,
     style: createStyle({ tty: process.stdout.isTTY === true, env: process.env }),
+    columns: process.stdout.columns,
     version: await readVersion(),
     reloadHint: async () => reloadHint(await shellTargets(home), home),
     prompt: async (question: string) => {

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { classifyDiagnostic, colorEnabled, createStyle, plainStyle } from "./tui.js";
+import {
+  classifyDiagnostic,
+  colorEnabled,
+  createStyle,
+  plainStyle,
+  terminalWidth,
+  wrap,
+} from "./tui.js";
 
 describe("colour detection", () => {
   it("enables colour on an interactive terminal", () => {
@@ -50,6 +57,48 @@ describe("styling", () => {
     const style = createStyle({ tty: true, env: {} });
     expect(style.mark("ok")).toContain("✓");
     expect(style.mark("fail")).toContain("✗");
+  });
+});
+
+describe("terminal width", () => {
+  it("falls back to a readable default when columns are unknown", () => {
+    expect(terminalWidth(undefined)).toBe(80);
+    expect(terminalWidth(0)).toBe(80);
+    expect(terminalWidth(Number.NaN)).toBe(80);
+  });
+
+  it("clamps very narrow and very wide terminals", () => {
+    expect(terminalWidth(20)).toBe(40);
+    expect(terminalWidth(300)).toBe(100);
+    expect(terminalWidth(72)).toBe(72);
+  });
+});
+
+describe("wrapping", () => {
+  it("leaves short text on one line", () => {
+    expect(wrap("short enough", 40)).toEqual(["short enough"]);
+  });
+
+  it("breaks on whitespace within the limit", () => {
+    const lines = wrap("one two three four five six seven eight", 15);
+
+    expect(lines.every((line) => line.length <= 15)).toBe(true);
+    expect(lines.join(" ")).toBe("one two three four five six seven eight");
+  });
+
+  it("keeps an over-long word intact so it stays copyable", () => {
+    const url = "https://example.com/a/very/long/path/that/exceeds/the/limit";
+    const lines = wrap(`see ${url} now`, 20);
+
+    expect(lines).toContain(url);
+  });
+
+  it("preserves existing newlines", () => {
+    expect(wrap("first\nsecond", 40)).toEqual(["first", "second"]);
+  });
+
+  it("never returns an empty array", () => {
+    expect(wrap("", 40)).toEqual([""]);
   });
 });
 
