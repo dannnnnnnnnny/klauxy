@@ -23,6 +23,7 @@ import {
   removeLegacyShims,
   uninstallShim,
 } from "./install.js";
+import { spawnClaude } from "./launch.js";
 import { claudeEnvironment } from "./launcher-env.js";
 import { klauxyPaths } from "./paths.js";
 import { createTranslator } from "./providers.js";
@@ -34,10 +35,9 @@ import {
   uninstallProxyService,
   waitForProxy,
 } from "./proxy-service.js";
-import { spawnPty } from "./pty.js";
-import { wireSession } from "./runner.js";
 import { installRuntime } from "./runtime-install.js";
 import { readState } from "./state.js";
+import { createStyle } from "./tui.js";
 
 interface Manifest {
   realClaude: string;
@@ -64,47 +64,22 @@ async function readManifest(path: string): Promise<Manifest> {
 async function runClaude(args: string[], home: string): Promise<void> {
   const paths = klauxyPaths(home);
   const manifest = await readManifest(paths.manifest);
-  const cols = process.stdout.columns || 120;
-  const rows = process.stdout.rows || 30;
   const baseUrl = proxyBaseUrl();
   await waitForProxy(baseUrl);
-  const handle = spawnPty(manifest.realClaude, args, {
+  const handle = spawnClaude(manifest.realClaude, args, {
     cwd: process.cwd(),
-    cols,
-    rows,
     env: claudeEnvironment(process.env, baseUrl),
   });
-  const cleanup = () => {
-    if (process.stdin.isTTY) process.stdin.setRawMode(false);
-    process.stdin.pause();
-  };
-  const session = wireSession({
-    pty: handle,
-    output: (data) => process.stdout.write(data),
-    close: async () => {},
-    exit: (code) => {
-      cleanup();
+  // Claude owns the inherited TTY, so only exit status and signals need relaying.
+  for (const signal of ["SIGTERM", "SIGHUP", "SIGINT"] as const) {
+    process.once(signal, () => handle.kill(signal));
+  }
+  await new Promise<void>((resolve) => {
+    handle.onExit((code) => {
       process.exitCode = code;
-    },
+      resolve();
+    });
   });
-  if (process.stdin.isTTY) {
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
-  }
-  process.stdin.setEncoding("utf8");
-  const onInput = (chunk: Buffer | string) => {
-    session.input(String(chunk));
-  };
-  process.stdin.on("data", onInput);
-  handle.onExit(() => process.stdin.off("data", onInput));
-  process.stdout.on("resize", () => {
-    const nextCols = process.stdout.columns || 120;
-    const nextRows = process.stdout.rows || 30;
-    session.resize(nextCols, nextRows);
-  });
-  for (const signal of ["SIGTERM", "SIGHUP"] as const) {
-    process.once(signal, () => session.kill(signal));
-  }
 }
 
 async function runProxyDaemon(home: string): Promise<void> {
@@ -187,6 +162,7 @@ async function main(): Promise<number | undefined> {
   return runCommand(args, {
     home,
     output: console.log,
+    style: createStyle({ tty: process.stdout.isTTY === true, env: process.env }),
     prompt: async (question: string) => {
       if (!process.stdin.isTTY) return null;
       const rl = createInterface({ input: process.stdin, output: process.stdout });

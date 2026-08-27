@@ -222,7 +222,7 @@ describe("init", () => {
 
     expect(result.code).toBe(1);
     const text = output.join("\n");
-    expect(text).toContain("does not serve model");
+    expect(text).toContain("does not serve");
     expect(text).toContain("llama3:8b");
   });
 });

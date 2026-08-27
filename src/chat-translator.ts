@@ -7,6 +7,11 @@ export interface ChatTranslatorOptions {
   chat_path?: string;
   extra_body?: Record<string, unknown>;
   label?: string;
+  /**
+   * Bearer credential for providers that require one. Held in memory only:
+   * never logged, never persisted, and never included in error messages.
+   */
+  api_key?: string;
 }
 
 interface ChatCompletionResponse {
@@ -43,6 +48,13 @@ export class ChatTranslator {
     return this.options.label ?? "translation provider";
   }
 
+  private requestHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    const key = this.options.api_key?.trim();
+    if (key) headers.authorization = ["Bearer ", key].join("");
+    return headers;
+  }
+
   async translate(text: string, signal?: AbortSignal): Promise<string> {
     if (signal?.aborted) throw new Error([this.label, " request cancelled"].join(""));
     const controller = new AbortController();
@@ -56,7 +68,7 @@ export class ChatTranslator {
       ].join("");
       const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: this.requestHeaders(),
         body: JSON.stringify({
           model: this.options.model,
           messages: [

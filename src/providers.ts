@@ -13,6 +13,12 @@ export interface ProviderDefinition {
   modelsPath: string;
   extraBody?: Record<string, unknown>;
   setupHint: string;
+  /**
+   * Environment variable holding this provider's API key, when it needs one.
+   * Keys are never written to config.toml so they stay out of shared dotfiles
+   * and out of `klx config get` output.
+   */
+  apiKeyEnv?: string;
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderDefinition> = {
@@ -45,6 +51,7 @@ export const PROVIDERS: Record<ProviderId, ProviderDefinition> = {
     defaultModel: "qwen2.5:7b",
     chatPath: DEFAULT_CHAT_PATH,
     modelsPath: "/v1/models",
+    apiKeyEnv: "OPENCODE_API_KEY",
     setupHint: "Start the OpenCode server, then confirm its host and model id.",
   },
 };
@@ -68,8 +75,25 @@ export interface TranslatorSettings {
   system_prompt: string;
 }
 
+/**
+ * Reads a provider's API key from the environment.
+ *
+ * Keys deliberately live in the environment rather than config.toml: the config
+ * file is printed by `klx config get` and is easy to commit by accident.
+ */
+export function providerApiKey(
+  id: ProviderId,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const name = providerDefinition(id).apiKeyEnv;
+  if (name === undefined) return undefined;
+  const value = env[name]?.trim();
+  return value === undefined || value.length === 0 ? undefined : value;
+}
+
 export function createTranslator(settings: TranslatorSettings): Translator {
   const definition = providerDefinition(settings.provider);
+  const key = providerApiKey(settings.provider);
   return new ChatTranslator({
     host: settings.host,
     model: settings.model,
@@ -78,6 +102,7 @@ export function createTranslator(settings: TranslatorSettings): Translator {
     system_prompt: settings.system_prompt,
     chat_path: definition.chatPath,
     label: definition.label,
+    ...(key === undefined ? {} : { api_key: key }),
     ...(definition.extraBody === undefined ? {} : { extra_body: definition.extraBody }),
   });
 }
@@ -100,7 +125,11 @@ export async function probeProvider(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(modelsEndpoint(id, host), { signal: controller.signal });
+    const key = providerApiKey(id);
+    const response = await fetch(modelsEndpoint(id, host), {
+      signal: controller.signal,
+      ...(key === undefined ? {} : { headers: { authorization: ["Bearer ", key].join("") } }),
+    });
     if (!response.ok) throw new Error(["HTTP ", response.status].join(""));
     const body = (await response.json()) as { data?: Array<{ id?: unknown }> };
     const models =

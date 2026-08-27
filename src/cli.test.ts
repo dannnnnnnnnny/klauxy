@@ -82,8 +82,8 @@ describe("Klauxy commands", () => {
     ).toBe(0);
 
     expect(output.join("\n")).toContain("failed");
-    expect(output.join("\n")).toContain("Original: 두 번째");
-    expect(output.join("\n")).toContain("Sent: 두 번째");
+    expect(output.join("\n")).toContain("ko 두 번째");
+    expect(output.join("\n")).toContain("en 두 번째");
     expect(output.join("\n")).not.toContain("첫 번째");
   });
 
@@ -102,7 +102,7 @@ describe("Klauxy commands", () => {
     expect(
       await runCommand(["history", "clear"], { home, output: (line) => output.push(line) }),
     ).toBe(0);
-    expect(output.at(-1)).toBe("Klauxy history cleared.");
+    expect(output.at(-1)).toContain("Klauxy history cleared.");
     const after: string[] = [];
     await runCommand(["history"], { home, output: (line) => after.push(line) });
     expect(after).toEqual(["No Klauxy history."]);
@@ -123,13 +123,13 @@ describe("Klauxy commands", () => {
     expect(await runCommand(["savings"], { home, output: (line) => output.push(line) })).toBe(0);
 
     const text = output.join("\n");
-    expect(text).toContain("Klauxy Savings");
-    expect(text).toContain("Successful translations: 1");
-    expect(text).toContain("Estimated original tokens:");
-    expect(text).toContain("Estimated forwarded tokens:");
-    expect(text).toContain("Estimated tokens saved:");
-    expect(text).toContain("Estimated savings:");
-    expect(text).toContain("Token counts are estimates");
+    expect(text).toContain("Klauxy savings");
+    expect(text).toContain("Translations");
+    expect(text).toContain("Original tokens");
+    expect(text).toContain("Forwarded tokens");
+    expect(text).toContain("Tokens saved");
+    expect(text).toContain("Savings");
+    expect(text).toContain("tokenizer is private");
     expect(text).not.toContain("구조");
   });
 
@@ -140,7 +140,7 @@ describe("Klauxy commands", () => {
     expect(await runCommand(["savings"], { home, output: (line) => output.push(line) })).toBe(0);
 
     const text = output.join("\n");
-    expect(text).toContain("Klauxy Savings");
+    expect(text).toContain("Klauxy savings");
     expect(text).toContain("No successful translations to compare.");
   });
 
@@ -159,8 +159,9 @@ describe("Klauxy commands", () => {
     expect(await runCommand(["savings"], { home, output: (line) => output.push(line) })).toBe(0);
 
     const text = output.join("\n");
-    expect(text).toContain("Estimated net token change:");
-    expect(text).not.toContain("Estimated tokens saved: -");
+    expect(text).toContain("Net token change");
+    expect(text).toContain("(longer)");
+    expect(text).not.toContain("Tokens saved");
   });
 });
 

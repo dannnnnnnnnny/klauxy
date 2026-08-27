@@ -30,7 +30,8 @@
     "mlx"
   ],
   "os": [
-    "darwin"
+    "darwin",
+    "linux"
   ],
   "scripts": {
     "build": "tsc && chmod +x dist/index.js",
@@ -46,8 +47,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@iarna/toml": "2.2.5",
-    "node-pty": "1.2.0-beta.13"
+    "@iarna/toml": "2.2.5"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.16",

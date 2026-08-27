@@ -22,7 +22,12 @@ export interface DoctorResult {
 export async function diagnose(options: DoctorOptions): Promise<DoctorResult> {
   const lines: string[] = [];
   let ok = true;
-  const supportedPlatform = options.platform === "darwin" && options.arch === "arm64";
+  const provider = options.provider ?? "omlx";
+
+  // Klauxy itself is portable: it needs a POSIX shell, Node, and a local HTTP
+  // provider. Only the oMLX backend is Apple-silicon specific, so the platform
+  // requirement is scoped to the selected provider rather than the whole tool.
+  const supportedPlatform = options.platform === "darwin" || options.platform === "linux";
   lines.push(
     [
       "Platform: ",
@@ -47,17 +52,22 @@ export async function diagnose(options: DoctorOptions): Promise<DoctorResult> {
     ok = false;
   }
 
-  const provider = options.provider ?? "omlx";
   const label = providerDefinition(provider).label;
-  const probe = await probeProvider(provider, options.host, options.timeoutMs);
-  if (!probe.reachable) {
-    lines.push([label, ": failed (", probe.error ?? "unreachable", ")"].join(""));
-    ok = false;
-  } else if (probe.models.length > 0 && !probe.models.includes(options.model)) {
-    lines.push([label, ": failed (model not found: ", options.model, ")"].join(""));
+  const appleSilicon = options.platform === "darwin" && options.arch === "arm64";
+  if (provider === "omlx" && !appleSilicon) {
+    lines.push([label, ": failed (requires Apple silicon; try: klx provider ollama)"].join(""));
     ok = false;
   } else {
-    lines.push([label, ": ok (", options.model, ")"].join(""));
+    const probe = await probeProvider(provider, options.host, options.timeoutMs);
+    if (!probe.reachable) {
+      lines.push([label, ": failed (", probe.error ?? "unreachable", ")"].join(""));
+      ok = false;
+    } else if (probe.models.length > 0 && !probe.models.includes(options.model)) {
+      lines.push([label, ": failed (model not found: ", options.model, ")"].join(""));
+      ok = false;
+    } else {
+      lines.push([label, ": ok (", options.model, ")"].join(""));
+    }
   }
   if (
     options.shellDefinitions?.some((source) =>
