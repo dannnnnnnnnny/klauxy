@@ -44,7 +44,7 @@ function isInternalAgentPayload(text: string): boolean {
   }
   const lines = trimmed.split("\n").filter((item) => item.trim().length > 0);
   if (lines.length < 2) return false;
-  for (const line of trimmed.split("\n").filter((item) => item.trim().length > 0)) {
+  for (const line of lines) {
     try {
       JSON.parse(line);
     } catch {
@@ -95,8 +95,10 @@ export async function transformMessagesBody(
     if (
       block?.type === "text" &&
       typeof block.text === "string" &&
-      !isInternalAgentPayload(block.text) &&
-      needsTranslation(block.text)
+      // Cheap Korean scan first: most blocks are English and never reach the
+      // JSON parsing inside isInternalAgentPayload.
+      needsTranslation(block.text) &&
+      !isInternalAgentPayload(block.text)
     ) {
       textIndexes.push(index);
       texts.push(block.text);
