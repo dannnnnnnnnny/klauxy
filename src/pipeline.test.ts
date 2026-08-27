@@ -84,3 +84,60 @@ describe("prompt translation pipeline", () => {
     });
   });
 });
+describe("guarding against a model that invents placeholders", () => {
+  it("strips placeholders the model added when the input had none", async () => {
+    // Qwen-class models sometimes emit {K0} from the system prompt example.
+    const translator = { translate: async () => "Explain the structure {K0}." };
+
+    const result = await translatePrompt("구조를 설명해줘", true, translator);
+
+    expect(result.translated).toBe(true);
+    expect(result.text).toBe("Explain the structure.");
+  });
+
+  it("keeps punctuation tidy after stripping a stray placeholder", async () => {
+    const translator = { translate: async () => "Fix this {K0} , please" };
+
+    const result = await translatePrompt("이것을 고쳐줘", true, translator);
+
+    expect(result.text).not.toContain("{K0}");
+    expect(result.text).not.toContain(" ,");
+  });
+
+  it("passes the original through when stripping cannot rescue the output", async () => {
+    const translator = { translate: async () => "번역이 안 된 한국어" };
+
+    const result = await translatePrompt("구조를 설명해줘", true, translator);
+
+    expect(result.translated).toBe(false);
+    expect(result.text).toBe("구조를 설명해줘");
+  });
+
+  it("reports a non-Error rejection as a failure string", async () => {
+    const translator = {
+      translate: async () => {
+        throw "provider exploded";
+      },
+    };
+
+    const result = await translatePrompt("구조를 설명해줘", true, translator);
+
+    expect(result.translated).toBe(false);
+    expect(result.failure).toBe("provider exploded");
+  });
+
+  it("forwards an abort signal to the translator when given one", async () => {
+    let received: AbortSignal | undefined;
+    const translator = {
+      translate: async (_text: string, signal?: AbortSignal) => {
+        received = signal;
+        return "Explain the structure.";
+      },
+    };
+    const controller = new AbortController();
+
+    await translatePrompt("구조를 설명해줘", true, translator, controller.signal);
+
+    expect(received).toBe(controller.signal);
+  });
+});

@@ -187,3 +187,33 @@ describe("probing a provider that needs a key", () => {
     });
   });
 });
+describe("cancellation before a request starts", () => {
+  it("rejects immediately when the signal is already aborted", async () => {
+    const translator = new ChatTranslator(options("http://127.0.0.1:1", CANARY));
+    const controller = new AbortController();
+    controller.abort();
+
+    // No request should be attempted at all.
+    await expect(translator.translate("안녕", controller.signal)).rejects.toThrow("cancelled");
+  });
+
+  it("keeps the key out of the already-aborted message", async () => {
+    const translator = new ChatTranslator(options("http://127.0.0.1:1", CANARY));
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await translator.translate("안녕", controller.signal).catch((cause) => cause);
+
+    expect(String(error)).not.toContain(CANARY);
+  });
+
+  it("returns the whole reply when the envelope appears more than once", async () => {
+    const echoed = ["<source_text>a</source_text>", "<source_text>b</source_text>"].join("\n");
+    const fake = await recordingServer(200, {
+      choices: [{ message: { content: echoed } }],
+    });
+
+    // Ambiguous output must not be silently truncated to one fragment.
+    await expect(new ChatTranslator(options(fake.host)).translate("안녕")).resolves.toBe(echoed);
+  });
+});
