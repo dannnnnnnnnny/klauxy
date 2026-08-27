@@ -2,24 +2,79 @@
 
 Klauxy (클록시) keeps the normal `claude` command and translates Korean prompts to concise English through a local model immediately before the request reaches Anthropic. Enter is delivered to the real Claude Code process without delay, so its native processing state appears immediately. Claude Code authentication, streaming, tools, permissions, MCP, thinking, and TUI remain in the real Claude process.
 
-## Commands
+```
+You type Korean  →  local model translates  →  English reaches Claude
+```
+
+Translation happens on your own machine, so prompts never pass through a
+third-party translation service. English prompts also cost fewer tokens.
+
+## Requirements
+
+- Apple Silicon Mac (`darwin/arm64`) running zsh
+- Node.js 20 or newer
+- Claude Code already installed and on your `PATH`
+- One local model server, which you start yourself: oMLX, Ollama, or OpenCode
+
+Klauxy does not install a model server for you. `klx doctor` reports which of
+these are missing.
+
+## Quick start
+
+Start a model server first. On Apple Silicon oMLX is the fastest; Ollama is the
+easiest to set up.
 
 ```sh
-klx init
-klx install
-klx provider
-klx provider ollama
-klx on
-klx off
-klx status
-klx history
-klx history --last 1
-klx history clear
-klx savings
-klx doctor
-klx config get
+ollama serve
+ollama pull qwen2.5:7b
+```
+
+Then pick the translator, connect Klauxy to `claude`, and turn it on.
+
+```sh
+klx init      # probe the servers and choose one (Enter accepts the detected default)
+klx install   # wrap the claude command
+klx on        # start translating
+```
+
+Now use `claude` exactly as before. `klx off` pauses translation and
+`klx uninstall` restores everything.
+
+Useful afterwards:
+
+```sh
+klx savings   # estimated tokens saved
+klx history   # what your Korean became in English
+klx doctor    # diagnose a broken setup
+```
+
+If translation fails, Klauxy sends your original prompt unchanged, so work is
+never blocked. File paths and code are masked before translation and restored
+afterwards: `src/config.ts 리팩터링해줘` becomes `Refactor src/config.ts.` with
+the path intact.
+
+## Command reference
+
+```sh
+klx init                      # choose the translation provider
+klx install                   # wrap the claude command and start the proxy
+klx uninstall                 # undo install and restore Claude settings
+
+klx on                        # start translating
+klx off                       # stop translating
+klx status                    # show whether translation is on
+
+klx provider                  # list providers, mark the active one
+klx provider ollama           # switch provider
+
+klx history                   # recent original/sent prompt pairs
+klx history --last 1          # only the latest entry
+klx history clear             # delete stored prompt text
+klx savings                   # estimated token savings
+klx doctor                    # diagnose platform, Claude, and provider
+
+klx config get                # print the effective configuration
 klx config set translation.system_prompt "Translate only."
-klx uninstall
 ```
 
 The full `klauxy` alias works identically: `klauxy install`, `klauxy savings`, etc.
