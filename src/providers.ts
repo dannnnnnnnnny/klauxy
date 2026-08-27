@@ -1,7 +1,7 @@
 import { ChatTranslator, DEFAULT_CHAT_PATH } from "./chat-translator.js";
 import type { Translator } from "./pipeline.js";
 
-export type ProviderId = "omlx" | "ollama" | "opencode";
+export type ProviderId = "omlx" | "ollama" | "openai-compatible";
 
 export interface ProviderDefinition {
   id: ProviderId;
@@ -43,16 +43,17 @@ export const PROVIDERS: Record<ProviderId, ProviderDefinition> = {
     modelsPath: "/v1/models",
     setupHint: "Run: ollama serve, then: ollama pull qwen2.5:7b",
   },
-  opencode: {
-    id: "opencode",
-    label: "OpenCode",
-    description: "OpenCode Go server with OpenAI-compatible API",
-    defaultHost: "http://127.0.0.1:4096",
-    defaultModel: "qwen2.5:7b",
+  "openai-compatible": {
+    id: "openai-compatible",
+    label: "OpenAI-compatible",
+    description: "Any server exposing /v1/chat/completions (LM Studio, vLLM, llama.cpp)",
+    defaultHost: "http://127.0.0.1:1234",
+    defaultModel: "local-model",
     chatPath: DEFAULT_CHAT_PATH,
     modelsPath: "/v1/models",
-    apiKeyEnv: "OPENCODE_API_KEY",
-    setupHint: "Start the OpenCode server, then confirm its host and model id.",
+    apiKeyEnv: "KLAUXY_API_KEY",
+    setupHint:
+      "Start your server, then set the host and model: klx provider openai-compatible --host <url> --model <id>",
   },
 };
 

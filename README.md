@@ -15,7 +15,7 @@ third-party translation service. English prompts also cost fewer tokens.
 - zsh, bash, or fish
 - Node.js 20 or newer
 - Claude Code already installed and on your `PATH`
-- One local model server, which you start yourself: oMLX, Ollama, or OpenCode
+- One local model server, which you start yourself: oMLX, Ollama, or any OpenAI-compatible server
 
 Klauxy does not install a model server for you. `klx doctor` reports which of
 these are missing.
@@ -117,10 +117,10 @@ candidate, shows which ones are already running, and saves the choice.
 | --- | --- | --- |
 | `omlx` | `http://127.0.0.1:8010` | `Qwen3-8B-4bit` |
 | `ollama` | `http://127.0.0.1:11434` | `qwen2.5:7b` |
-| `opencode` | `http://127.0.0.1:4096` | `qwen2.5:7b` |
+| `openai-compatible` | `http://127.0.0.1:1234` | `local-model` |
 
 If a provider requires an API key, export it in your shell instead of storing it
-in the config file. Klauxy reads `OPENCODE_API_KEY` for OpenCode, keeps it in
+in the config file. Klauxy reads `KLAUXY_API_KEY` for the generic backend, keeps it in
 memory only, and never writes it to `config.toml`, history, or error messages.
 
 All three speak the OpenAI-compatible `/v1/chat/completions` API, so switching
@@ -133,7 +133,7 @@ klx init --provider ollama        # non-interactive
 klx provider                      # list providers, mark the active one
 klx provider ollama               # switch, retargeting host and model defaults
 klx provider omlx --model Qwen3-14B-4bit
-klx provider opencode --host http://127.0.0.1:5000
+klx provider openai-compatible --host http://127.0.0.1:1234 --model local-model
 ```
 
 Switching providers keeps a host or model you customized earlier and only

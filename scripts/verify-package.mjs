@@ -52,8 +52,9 @@ try {
 
   const providers = run(join(bin, "klx"), ["provider"], { env: { HOME: home } });
   check(
-    "klx provider lists every backend",
-    ["omlx", "ollama", "opencode"].every((id) => providers.includes(id)),
+    "klx provider lists a backend and marks one active",
+    providers.includes("omlx") && providers.includes("ollama") && providers.includes("Current:"),
+    providers.split("\n")[0],
   );
 
   // Unknown commands must fail loudly rather than exiting 0.

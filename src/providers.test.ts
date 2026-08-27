@@ -39,8 +39,8 @@ async function fakeChatServer(handler: (body: unknown) => unknown) {
 }
 
 describe("provider registry", () => {
-  it("exposes omlx, ollama, and opencode", () => {
-    expect(PROVIDER_IDS).toEqual(["omlx", "ollama", "opencode"]);
+  it("exposes omlx, ollama, and a generic OpenAI-compatible backend", () => {
+    expect(PROVIDER_IDS).toEqual(["omlx", "ollama", "openai-compatible"]);
   });
 
   it("validates provider ids", () => {

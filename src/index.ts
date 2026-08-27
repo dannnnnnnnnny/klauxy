@@ -150,12 +150,6 @@ async function detectUpstream(paths: ReturnType<typeof klauxyPaths>): Promise<st
     // first installation or older manifest
   }
 
-  try {
-    const legacyManifest = await getLegacyRealClaude(paths.configDir.replace("/config/klauxy", ""));
-  } catch {
-    // no legacy
-  }
-
   return "https://api.anthropic.com";
 }
 

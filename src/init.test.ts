@@ -84,7 +84,7 @@ describe("init", () => {
     const path = await configPath();
 
     await runInit(
-      { provider: "opencode", host: "http://127.0.0.1:9999", model: "custom-model" },
+      { provider: "openai-compatible", host: "http://127.0.0.1:9999", model: "custom-model" },
       {
         configPath: path,
         output: () => {},
@@ -94,7 +94,7 @@ describe("init", () => {
     );
 
     const config = await loadConfig(path);
-    expect(config.translation.provider).toBe("opencode");
+    expect(config.translation.provider).toBe("openai-compatible");
     expect(config.translation.host).toBe("http://127.0.0.1:9999");
     expect(config.translation.model).toBe("custom-model");
   });
@@ -129,12 +129,12 @@ describe("init", () => {
       {
         configPath: path,
         output: () => {},
-        prompt: async () => "opencode",
+        prompt: async () => "openai-compatible",
         probe: reachable([]),
       },
     );
 
-    expect((await loadConfig(path)).translation.provider).toBe("opencode");
+    expect((await loadConfig(path)).translation.provider).toBe("openai-compatible");
   });
 
   it("defaults an empty answer to the detected provider", async () => {

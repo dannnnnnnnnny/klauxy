@@ -83,7 +83,7 @@ export async function runCommand(args: string[], context: CommandContext): Promi
     if ("error" in parsed) {
       context.output(parsed.error);
       context.output(
-        "Usage: klx init [--provider <omlx|ollama|opencode>] [--host <url>] [--model <id>]",
+        "Usage: klx init [--provider <omlx|ollama|openai-compatible>] [--host <url>] [--model <id>]",
       );
       return 1;
     }
@@ -101,7 +101,7 @@ export async function runCommand(args: string[], context: CommandContext): Promi
     if ("error" in parsed) {
       context.output(parsed.error);
       context.output(
-        "Usage: klx setup [--provider <omlx|ollama|opencode>] [--host <url>] [--model <id>]",
+        "Usage: klx setup [--provider <omlx|ollama|openai-compatible>] [--host <url>] [--model <id>]",
       );
       return 1;
     }

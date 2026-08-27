@@ -391,7 +391,7 @@ describe("provider command", () => {
     const text = output.join("\n");
     expect(text).toContain("omlx");
     expect(text).toContain("ollama");
-    expect(text).toContain("opencode");
+    expect(text).toContain("openai-compatible");
     expect(text).toContain("* omlx");
     expect(text).toContain("Current: omlx");
   });
@@ -411,9 +411,11 @@ describe("provider command", () => {
   it("accepts the explicit set form", async () => {
     const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
 
-    await runCommand(["provider", "set", "opencode"], { home, output: () => {} });
+    await runCommand(["provider", "set", "openai-compatible"], { home, output: () => {} });
 
-    expect((await loadConfig(klauxyPaths(home).config)).translation.provider).toBe("opencode");
+    expect((await loadConfig(klauxyPaths(home).config)).translation.provider).toBe(
+      "openai-compatible",
+    );
   });
 
   it("rejects an unknown provider", async () => {

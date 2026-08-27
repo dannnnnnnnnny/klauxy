@@ -28,7 +28,7 @@ class Klauxy < Formula
     <<~EOS
       Klauxy needs a local model server and a one-time setup:
 
-        klx init      # choose oMLX, Ollama, or OpenCode
+        klx init      # choose oMLX, Ollama, or any OpenAI-compatible server
         klx install   # wrap the claude command
         klx on        # start translating
 

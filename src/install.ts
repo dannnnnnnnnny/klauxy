@@ -1,5 +1,5 @@
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { type HistoryEntry, readHistory } from "./history.js";
 import { klauxyPaths, legacyKagentPaths } from "./paths.js";
 import type { ShellTarget } from "./shell.js";
@@ -8,8 +8,6 @@ const START = "# >>> klauxy >>>";
 const END = "# <<< klauxy <<<";
 const BLOCK_PATTERN = /\n?# >>> klauxy >>>[\s\S]*?# <<< klauxy <<<\n?/g;
 
-const LEGACY_START = "# >>> kagent >>>";
-const LEGACY_END = "# <<< kagent <<<";
 const LEGACY_BLOCK_PATTERN = /\n?# >>> kagent >>>[\s\S]*?# <<< kagent <<<\n?/g;
 
 async function atomicWrite(path: string, content: string, mode = 0o600): Promise<void> {

@@ -7,14 +7,14 @@ All notable changes to Klauxy are recorded here. This project follows
 
 ### Added
 
-- `klx init` selects the translation backend, probing oMLX, Ollama, and OpenCode
+- `klx init` selects the translation backend, probing oMLX, Ollama, and any OpenAI-compatible server
   and reporting which are already running.
 - `klx provider` lists backends and switches between them.
 - `klx savings` estimates tokens saved across successful translations.
 - `klx --help` and `klx --version`, plus a suggestion when a command is mistyped.
 - Linux support through a systemd user service for the proxy daemon.
 - Shell detection for zsh, bash, and fish, including `fish_add_path` syntax.
-- API keys are read from the environment (`OPENCODE_API_KEY`) and never written
+- API keys are read from the environment (`KLAUXY_API_KEY`) and never written
   to the config file, history, or error messages.
 
 ### Changed
@@ -28,6 +28,11 @@ All notable changes to Klauxy are recorded here. This project follows
 
 ### Fixed
 
+- Replaced the OpenCode provider with a generic `openai-compatible` backend.
+  OpenCode's headless server exposes a session-based API and no
+  `/v1/chat/completions` endpoint, so the provider could never have worked. The
+  replacement targets LM Studio, vLLM, llama.cpp, and anything else speaking the
+  OpenAI chat surface.
 - A request body over the size limit left the client waiting instead of
   receiving the 413 response.
 - `resolveRealClaude` threw at runtime because `join` was never imported.

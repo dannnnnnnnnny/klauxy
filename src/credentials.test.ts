@@ -38,20 +38,20 @@ function options(host: string, key?: string) {
     timeout_ms: 1000,
     max_tokens: 32,
     system_prompt: "Translate only.",
-    label: "OpenCode",
+    label: "OpenAI-compatible",
     ...(key === undefined ? {} : { api_key: key }),
   };
 }
 
 describe("provider credential handling", () => {
   it("reads the key from the environment, not from config", () => {
-    expect(providerApiKey("opencode", { OPENCODE_API_KEY: CANARY })).toBe(CANARY);
-    expect(providerApiKey("opencode", {})).toBeUndefined();
-    expect(providerApiKey("opencode", { OPENCODE_API_KEY: "   " })).toBeUndefined();
+    expect(providerApiKey("openai-compatible", { KLAUXY_API_KEY: CANARY })).toBe(CANARY);
+    expect(providerApiKey("openai-compatible", {})).toBeUndefined();
+    expect(providerApiKey("openai-compatible", { KLAUXY_API_KEY: "   " })).toBeUndefined();
   });
 
   it("reports no key for providers that do not use one", () => {
-    expect(providerApiKey("ollama", { OPENCODE_API_KEY: CANARY })).toBeUndefined();
+    expect(providerApiKey("ollama", { KLAUXY_API_KEY: CANARY })).toBeUndefined();
     expect(providerApiKey("omlx", { OMLX_API_KEY: CANARY })).toBeUndefined();
   });
 

@@ -108,7 +108,7 @@ describe("savings gauge", () => {
       const gauge = buildSavingsGauge(pct);
       const match = gauge.match(/\[([^\]]+)\]/);
       expect(match).not.toBeNull();
-      expect(match![1].length).toBe(40);
+      expect(match?.[1]?.length).toBe(40);
     }
   });
 });
