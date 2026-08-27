@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { ChatTranslator } from "./chat-translator.js";
-import { providerApiKey } from "./providers.js";
+import { probeProvider, providerApiKey } from "./providers.js";
 
 const CANARY = "sk-canary-must-never-appear";
 
@@ -97,5 +97,93 @@ describe("provider credential handling", () => {
 
     expect(String(error)).not.toContain(CANARY);
     expect(String(error)).toContain("timed out");
+  });
+});
+describe("probing a provider that needs a key", () => {
+  it("sends the key when probing an authenticated provider", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const server = createServer((request, response) => {
+      seen.push({ ...(request.headers as Record<string, string>) });
+      request.resume();
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ data: [{ id: "local-model" }] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    servers.push(server);
+    const host = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    process.env.KLAUXY_API_KEY = CANARY;
+    try {
+      const result = await probeProvider("openai-compatible", host, 1000);
+      expect(result.reachable).toBe(true);
+      expect(seen[0]?.authorization).toBe(`Bearer ${CANARY}`);
+    } finally {
+      delete process.env.KLAUXY_API_KEY;
+    }
+  });
+
+  it("omits the header for a provider that takes no key", async () => {
+    const seen: Array<Record<string, string>> = [];
+    const server = createServer((request, response) => {
+      seen.push({ ...(request.headers as Record<string, string>) });
+      request.resume();
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ data: [] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    servers.push(server);
+    const host = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    process.env.KLAUXY_API_KEY = CANARY;
+    try {
+      await probeProvider("ollama", host, 1000);
+      expect(seen[0]?.authorization).toBeUndefined();
+    } finally {
+      delete process.env.KLAUXY_API_KEY;
+    }
+  });
+
+  it("keeps the key out of a probe failure message", async () => {
+    process.env.KLAUXY_API_KEY = CANARY;
+    try {
+      const result = await probeProvider("openai-compatible", "http://127.0.0.1:1", 200);
+
+      expect(result.reachable).toBe(false);
+      expect(JSON.stringify(result)).not.toContain(CANARY);
+    } finally {
+      delete process.env.KLAUXY_API_KEY;
+    }
+  });
+
+  it("reports an unhealthy provider by status, not as reachable", async () => {
+    const server = createServer((request, response) => {
+      request.resume();
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end("{}");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    servers.push(server);
+    const host = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    const result = await probeProvider("ollama", host, 1000);
+
+    expect(result.reachable).toBe(false);
+    expect(result.error).toContain("401");
+  });
+
+  it("ignores malformed model entries rather than failing the probe", async () => {
+    const server = createServer((request, response) => {
+      request.resume();
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ data: [{ id: "good" }, { id: 42 }, {}] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    servers.push(server);
+    const host = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    expect(await probeProvider("ollama", host, 1000)).toEqual({
+      reachable: true,
+      models: ["good"],
+    });
   });
 });

@@ -112,3 +112,48 @@ describe("savings gauge", () => {
     }
   });
 });
+describe("token estimation across character classes", () => {
+  it("charges Korean syllables more than ASCII", () => {
+    const korean = estimateSavingsFromText("가나다라마바사아자차", "");
+    const ascii = estimateSavingsFromText("abcdefghij", "");
+
+    // The whole point of translating is that Korean costs more per character.
+    expect(korean.estimatedOriginal).toBeGreaterThan(ascii.estimatedOriginal);
+  });
+
+  it("counts other BMP characters between ASCII and Korean", () => {
+    const ascii = estimateSavingsFromText("aaaaaaaaaa", "").estimatedOriginal;
+    const cjk = estimateSavingsFromText("漢字漢字漢字漢字漢字", "").estimatedOriginal;
+    const korean = estimateSavingsFromText("가나다라마바사아자차", "").estimatedOriginal;
+
+    expect(cjk).toBeGreaterThan(ascii);
+    expect(cjk).toBeLessThan(korean);
+  });
+
+  it("handles astral characters without splitting surrogate pairs", () => {
+    // Emoji are two code units; miscounting them would skew the estimate.
+    const estimate = estimateSavingsFromText("🙂🙂🙂🙂🙂", "");
+
+    expect(estimate.estimatedOriginal).toBe(5);
+  });
+
+  it("counts compatibility jamo like syllables", () => {
+    const jamo = estimateSavingsFromText("ㄱㄴㄷㄹㅁ", "").estimatedOriginal;
+
+    expect(jamo).toBe(15);
+  });
+
+  it("returns zero for empty text and at least one otherwise", () => {
+    expect(estimateSavingsFromText("", "").estimatedOriginal).toBe(0);
+    expect(estimateSavingsFromText("a", "").estimatedOriginal).toBe(1);
+  });
+
+  it("shows a saving when Korean becomes shorter English", () => {
+    const estimate = estimateSavingsFromText(
+      "이 프로젝트의 구조를 설명해줘",
+      "Explain the structure of this project.",
+    );
+
+    expect(estimate.estimatedOriginal).toBeGreaterThan(estimate.estimatedForwarded);
+  });
+});
