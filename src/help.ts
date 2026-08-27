@@ -9,6 +9,12 @@ export interface CommandDoc {
 
 export const COMMANDS: readonly CommandDoc[] = [
   {
+    name: "setup",
+    args: "[--provider <id>]",
+    summary: "one-step first run: pick, wire, enable",
+    group: "setup",
+  },
+  {
     name: "init",
     args: "[--provider <id>]",
     summary: "choose the translation provider",
@@ -19,6 +25,12 @@ export const COMMANDS: readonly CommandDoc[] = [
   { name: "on", summary: "start translating", group: "control" },
   { name: "off", summary: "stop translating", group: "control" },
   { name: "status", summary: "show whether translation is on", group: "control" },
+  {
+    name: "try",
+    args: "[text]",
+    summary: "translate one sample to check the setup",
+    group: "inspect",
+  },
   {
     name: "provider",
     args: "[<id>]",
@@ -112,7 +124,7 @@ export function renderHelp(style: Style, version: string): string[] {
   }
 
   lines.push("");
-  lines.push(style.dim("First run:  klx init  →  klx install  →  klx on"));
-  lines.push(style.dim("Then use the normal claude command."));
+  lines.push([style.bold("First run:"), " klx setup"].join(""));
+  lines.push(style.dim("Then use the normal claude command and type Korean."));
   return lines;
 }

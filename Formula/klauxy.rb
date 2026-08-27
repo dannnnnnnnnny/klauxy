@@ -1,9 +1,9 @@
 # Homebrew formula for Klauxy.
 #
 # Publish flow:
-#   1. npm publish            (the formula installs the published tarball)
-#   2. npm view klauxy dist.tarball dist.integrity
-#   3. update url + sha256 below, then push to a homebrew-<name> tap repo
+#   1. npm publish                        (the formula installs that tarball)
+#   2. npm run formula:update             (rewrites url + sha256 below)
+#   3. copy this file into a homebrew-tap repo and push
 #
 # Install:
 #   brew tap dannnnnnnnnny/tap && brew install klauxy
@@ -38,6 +38,16 @@ class Klauxy < Formula
   end
 
   test do
-    assert_match "Klauxy providers", shell_output("#{bin}/klx provider")
+    # Both entry points must resolve, and the version must match the formula.
+    assert_match version.to_s, shell_output("#{bin}/klx --version")
+    assert_match version.to_s, shell_output("#{bin}/klauxy --version")
+
+    # Point HOME at the sandbox so the test never reads or writes real config.
+    ENV["HOME"] = testpath
+    assert_match "Usage:", shell_output("#{bin}/klx --help")
+    assert_match "omlx", shell_output("#{bin}/klx provider")
+
+    # An unknown command must fail rather than exit 0.
+    shell_output("#{bin}/klx not-a-command 2>&1", 1)
   end
 end

@@ -42,12 +42,20 @@ ollama serve
 ollama pull qwen2.5:7b
 ```
 
-Then pick the translator, connect Klauxy to `claude`, and turn it on.
+Then run one command. It picks a provider, wires the `claude` command, and turns
+translation on.
 
 ```sh
-klx init      # probe the servers and choose one (Enter accepts the detected default)
-klx install   # wrap the claude command
-klx on        # start translating
+klx setup
+```
+
+Confirm it works without starting a session:
+
+```sh
+klx try
+# ko  이 프로젝트의 구조를 설명해줘
+# en  Explain the structure of this project.
+# ✓ 1204ms
 ```
 
 Now use `claude` exactly as before. `klx off` pauses translation and
@@ -71,6 +79,7 @@ the path intact.
 ```sh
 klx --help                    # grouped command overview
 klx --version                 # installed version
+klx setup                     # one-step first run
 klx init                      # choose the translation provider
 klx install                   # wrap the claude command and start the proxy
 klx uninstall                 # undo install and restore Claude settings
@@ -86,6 +95,7 @@ klx history                   # recent original/sent prompt pairs
 klx history --last 1          # only the latest entry
 klx history clear             # delete stored prompt text
 klx savings                   # estimated token savings
+klx try [text]                # translate one sample to check the setup
 klx doctor                    # diagnose platform, Claude, and provider
 
 klx config get                # print the effective configuration

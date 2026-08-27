@@ -1,9 +1,18 @@
+import { readFile } from "node:fs/promises";
 import { loadConfig, setConfigValue } from "./config.js";
 import { renderHelp, suggestCommand } from "./help.js";
 import { clearHistory, readHistory } from "./history.js";
 import { parseInitArgs, runInit } from "./init.js";
 import { klauxyPaths } from "./paths.js";
-import { PROVIDER_IDS, providerDefinition } from "./providers.js";
+import { type Translator, translatePrompt } from "./pipeline.js";
+import {
+  createTranslator,
+  PROVIDER_IDS,
+  type ProbeResult,
+  type ProviderId,
+  providerDefinition,
+  type TranslatorSettings,
+} from "./providers.js";
 import { buildSavingsGauge, estimateSavings, estimateSavingsFromText } from "./savings.js";
 import { readState, writeEnabled } from "./state.js";
 import { classifyDiagnostic, plainStyle, type Style } from "./tui.js";
@@ -15,6 +24,10 @@ export interface CommandContext {
   /** Package version, shown by `klx --version`. */
   version?: string;
   prompt?(question: string): Promise<string | null>;
+  /** Overrides provider reachability checks; used by tests. */
+  probe?(id: ProviderId, host: string, timeoutMs: number): Promise<ProbeResult>;
+  /** Overrides translator construction; used by tests. */
+  createTranslator?(settings: TranslatorSettings): Translator;
   install?(): Promise<void>;
   /** Shell-specific reload instruction, resolved by the caller. */
   reloadHint?(): Promise<string>;
@@ -29,6 +42,34 @@ export async function runCommand(args: string[], context: CommandContext): Promi
   const version = context.version ?? "0.0.0";
 
   if (command === undefined || command === "help" || command === "--help" || command === "-h") {
+    // A bare `klx` on a fresh machine should say what to do next, not just list
+    // every command and leave the user to work out the order.
+    if (command === undefined) {
+      let configured = false;
+      try {
+        await readFile(paths.manifest, "utf8");
+        configured = true;
+      } catch {
+        configured = false;
+      }
+      if (!configured) {
+        context.output([style.bold("klauxy"), " ", style.dim(version)].join(""));
+        context.output("");
+        context.output("Translates Korean prompts to English before they reach Claude Code.");
+        context.output("");
+        context.output([style.mark("warn"), " Not set up yet."].join(""));
+        context.output("");
+        context.output(["  Run ", style.bold("klx setup"), " to get started."].join(""));
+        context.output(
+          style.dim(
+            "  It picks a local model, wires the claude command, and turns translation on.",
+          ),
+        );
+        context.output("");
+        context.output(style.dim("  klx --help lists every command."));
+        return 0;
+      }
+    }
     for (const line of renderHelp(style, version)) context.output(line);
     // A bare `klx` is a request for orientation, not a usage error.
     return 0;
@@ -51,8 +92,74 @@ export async function runCommand(args: string[], context: CommandContext): Promi
       output: context.output,
       prompt: context.prompt ?? (async () => null),
       style,
+      ...(context.probe === undefined ? {} : { probe: context.probe }),
     });
     return result.code;
+  }
+  if (command === "setup") {
+    const parsed = parseInitArgs(args.slice(1));
+    if ("error" in parsed) {
+      context.output(parsed.error);
+      context.output(
+        "Usage: klx setup [--provider <omlx|ollama|opencode>] [--host <url>] [--model <id>]",
+      );
+      return 1;
+    }
+
+    // One command for the whole first run. Choosing a provider, wiring the
+    // claude shim, and switching translation on are always done together, and
+    // making people discover three commands in order is the main thing that
+    // goes wrong on a fresh install.
+    context.output(style.heading("Klauxy setup"));
+    context.output("");
+    context.output(style.dim("1/3  choosing a translation provider"));
+    const chosen = await runInit(parsed, {
+      configPath: paths.config,
+      output: (line) => context.output(line === "" ? "" : ["  ", line].join("")),
+      prompt: context.prompt ?? (async () => null),
+      style,
+      ...(context.probe === undefined ? {} : { probe: context.probe }),
+    });
+    if (chosen.code !== 0) {
+      context.output("");
+      context.output(style.dim("Provider is not ready, so setup stopped before installing."));
+      context.output(style.dim("Start the server, then run klx setup again."));
+      return chosen.code;
+    }
+
+    context.output("");
+    context.output(style.dim("2/3  wrapping the claude command"));
+    if (context.install === undefined) {
+      context.output(["  ", style.mark("fail"), " install is unavailable here"].join(""));
+      return 1;
+    }
+    try {
+      await context.install();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      context.output(["  ", style.mark("fail"), " ", reason].join(""));
+      context.output("");
+      context.output(
+        style.dim("The provider choice was saved. Fix the problem above, then rerun:"),
+      );
+      context.output(style.dim("  klx setup"));
+      context.output(style.dim("Run klx doctor for a full diagnosis."));
+      return 1;
+    }
+    const hint = context.reloadHint ? await context.reloadHint() : "Restart your shell";
+    context.output(["  ", style.mark("ok"), " claude now routes through Klauxy"].join(""));
+
+    context.output("");
+    context.output(style.dim("3/3  enabling translation"));
+    await writeEnabled(paths.state, true);
+    context.output(["  ", style.mark("ok"), " translation is on"].join(""));
+
+    context.output("");
+    context.output(style.bold("Ready."));
+    context.output(style.dim(["  ", hint].join("")));
+    context.output(style.dim("  Then run claude and type Korean as usual."));
+    context.output(style.dim("  klx status shows state, klx off pauses translation."));
+    return 0;
   }
   if (command === "provider") {
     const positional = args[1] === "set" ? args[2] : args[1];
@@ -232,6 +339,38 @@ export async function runCommand(args: string[], context: CommandContext): Promi
   if (command === "uninstall" && context.uninstall) {
     await context.uninstall();
     context.output([style.mark("ok"), " Klauxy uninstalled."].join(""));
+    return 0;
+  }
+  if (command === "try") {
+    // Lets someone confirm translation works without starting a Claude session,
+    // which is otherwise the only way to see the pipeline run end to end.
+    const sample = args.slice(1).join(" ") || "이 프로젝트의 구조를 설명해줘";
+    const config = await loadConfig(paths.config);
+    const definition = providerDefinition(config.translation.provider);
+    context.output(style.heading("Klauxy translation test"));
+    context.output("");
+    context.output([style.dim("provider  "), definition.label].join(""));
+    context.output([style.dim("model     "), config.translation.model].join(""));
+    context.output("");
+    context.output([style.dim("ko  "), sample].join(""));
+
+    const translator = (context.createTranslator ?? createTranslator)(config.translation);
+    const started = Date.now();
+    const result = await translatePrompt(sample, true, translator);
+    const elapsed = Date.now() - started;
+
+    if (!result.translated) {
+      context.output([style.dim("en  "), style.color("yellow", "(unchanged)")].join(""));
+      context.output("");
+      context.output(
+        [style.mark("fail"), " ", result.failure ?? "translation did not run"].join(""),
+      );
+      context.output(style.dim("Run klx doctor to check the provider."));
+      return 1;
+    }
+    context.output([style.dim("en  "), result.text].join(""));
+    context.output("");
+    context.output([style.mark("ok"), style.dim([" ", elapsed, "ms"].join(""))].join(""));
     return 0;
   }
   if (command === "doctor" && context.doctor) {

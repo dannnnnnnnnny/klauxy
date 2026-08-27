@@ -1,6 +1,6 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { runCommand } from "./cli.js";
 import { loadConfig } from "./config.js";
@@ -166,15 +166,29 @@ describe("Klauxy commands", () => {
 });
 
 describe("discoverability", () => {
-  it("shows help for a bare invocation and exits successfully", async () => {
+  it("points an unconfigured install at setup instead of listing everything", async () => {
     const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
     const output: string[] = [];
 
     expect(await runCommand([], { home, output: (line) => output.push(line) })).toBe(0);
 
     const text = output.join("\n");
+    expect(text).toContain("Not set up yet");
+    expect(text).toContain("klx setup");
+    expect(text).toContain("klx --help");
+  });
+
+  it("shows the full command list once installed", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const paths = klauxyPaths(home);
+    await mkdir(dirname(paths.manifest), { recursive: true });
+    await writeFile(paths.manifest, "{}", "utf8");
+    const output: string[] = [];
+
+    expect(await runCommand([], { home, output: (line) => output.push(line) })).toBe(0);
+
+    const text = output.join("\n");
     expect(text).toContain("klx <command>");
-    expect(text).toContain("init");
     expect(text).toContain("savings");
   });
 
@@ -233,6 +247,137 @@ describe("discoverability", () => {
     });
 
     expect(output.join("\n")).toContain("source ~/.bashrc");
+  });
+});
+
+describe("try command", () => {
+  it("shows the original and translated sample on success", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    const code = await runCommand(["try"], {
+      home,
+      output: (line) => output.push(line),
+      createTranslator: () => ({ translate: async () => "Explain the project structure." }),
+    });
+
+    expect(code).toBe(0);
+    const text = output.join("\n");
+    expect(text).toContain("Klauxy translation test");
+    expect(text).toContain("Explain the project structure.");
+    expect(text).toContain("oMLX");
+  });
+
+  it("accepts custom sample text", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    await runCommand(["try", "버그를", "고쳐줘"], {
+      home,
+      output: (line) => output.push(line),
+      createTranslator: () => ({ translate: async () => "Fix the bug." }),
+    });
+
+    const text = output.join("\n");
+    expect(text).toContain("버그를 고쳐줘");
+    expect(text).toContain("Fix the bug.");
+  });
+
+  it("reports a failing provider and exits non-zero", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    const code = await runCommand(["try"], {
+      home,
+      output: (line) => output.push(line),
+      createTranslator: () => ({
+        translate: async () => {
+          throw new Error("oMLX request timed out");
+        },
+      }),
+    });
+
+    expect(code).toBe(1);
+    const text = output.join("\n");
+    expect(text).toContain("oMLX request timed out");
+    expect(text).toContain("klx doctor");
+  });
+});
+
+describe("one-step setup", () => {
+  it("runs provider selection, install, and enable in order", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+    const install = vi.fn().mockResolvedValue(undefined);
+
+    const code = await runCommand(["setup", "--provider", "ollama"], {
+      home,
+      output: (line) => output.push(line),
+      install,
+      reloadHint: async () => "Restart your shell or run: source ~/.zshrc",
+      probe: async () => ({ reachable: true, models: ["qwen2.5:7b"] }),
+    });
+
+    expect(code).toBe(0);
+    expect(install).toHaveBeenCalledOnce();
+    expect((await readState(klauxyPaths(home).state)).enabled).toBe(true);
+    expect((await loadConfig(klauxyPaths(home).config)).translation.provider).toBe("ollama");
+
+    const text = output.join("\n");
+    expect(text).toContain("1/3");
+    expect(text).toContain("2/3");
+    expect(text).toContain("3/3");
+    expect(text).toContain("Ready.");
+    expect(text).toContain("source ~/.zshrc");
+  });
+
+  it("stops before installing when the provider is unreachable", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+    const install = vi.fn().mockResolvedValue(undefined);
+
+    const code = await runCommand(["setup", "--provider", "ollama"], {
+      home,
+      output: (line) => output.push(line),
+      install,
+      probe: async () => ({ reachable: false, models: [], error: "connect ECONNREFUSED" }),
+    });
+
+    expect(code).toBe(1);
+    expect(install).not.toHaveBeenCalled();
+    // Translation must stay off so claude is never routed through a dead proxy.
+    expect((await readState(klauxyPaths(home).state)).enabled).toBe(false);
+    expect(output.join("\n")).toContain("stopped before installing");
+  });
+
+  it("reports an install failure and leaves translation off", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    const code = await runCommand(["setup", "--provider", "ollama"], {
+      home,
+      output: (line) => output.push(line),
+      install: async () => {
+        throw new Error("could not locate the real Claude Code executable");
+      },
+      probe: async () => ({ reachable: true, models: ["qwen2.5:7b"] }),
+    });
+
+    expect(code).toBe(1);
+    expect((await readState(klauxyPaths(home).state)).enabled).toBe(false);
+    const text = output.join("\n");
+    expect(text).toContain("could not locate the real Claude Code executable");
+    expect(text).toContain("klx setup");
+  });
+
+  it("rejects unknown setup flags", async () => {
+    const home = await mkdtemp(join(tmpdir(), "klauxy-cli-"));
+    const output: string[] = [];
+
+    expect(
+      await runCommand(["setup", "--verbose"], { home, output: (line) => output.push(line) }),
+    ).toBe(1);
+    expect(output.join("\n")).toContain("unknown option: --verbose");
   });
 });
 

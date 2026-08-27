@@ -9,6 +9,7 @@
   },
   "files": [
     "dist/**/*.js",
+    "LICENSE",
     "README.md",
     "THIRD_PARTY_NOTICES.md"
   ],
@@ -33,13 +34,20 @@
     "darwin",
     "linux"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsc && chmod +x dist/index.js",
     "prepack": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm run check && npm test",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "check": "biome check src",
+    "verify:package": "node scripts/verify-package.mjs",
+    "formula:update": "node scripts/update-formula.mjs",
     "format": "biome format --write src"
   },
   "engines": {

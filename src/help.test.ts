@@ -53,9 +53,8 @@ describe("help output", () => {
     const text = renderHelp(plainStyle, "1.2.3").join("\n");
 
     expect(text).toContain("1.2.3");
-    expect(text).toContain("klx init");
-    expect(text).toContain("klx install");
-    expect(text).toContain("klx on");
+    expect(text).toContain("klx setup");
+    expect(text).toContain("First run:");
   });
 
   it("groups commands under headings", () => {
