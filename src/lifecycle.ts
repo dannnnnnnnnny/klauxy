@@ -16,6 +16,7 @@ import { klauxyPaths } from "./paths.js";
 import {
   installProxyService,
   proxyBaseUrl,
+  type RunCommand,
   uninstallProxyService,
   waitForProxy,
 } from "./proxy-service.js";
@@ -39,11 +40,15 @@ export interface Environment {
   nodeVersion: string;
   detectUpstream(): Promise<string>;
   readRealClaude(manifestPath: string): Promise<string>;
+  /** Runs supervisor commands; injected so tests never register a real service. */
+  run?: RunCommand;
+  /** Waits for the proxy health check; injected so tests need no live proxy. */
+  waitForProxy?: () => Promise<void>;
 }
 
 /** Locates the real Claude binary, preferring a recorded path over a PATH scan. */
 async function findRealClaude(environment: Environment): Promise<string> {
-  const paths = klauxyPaths(environment.home);
+  const paths = klauxyPaths(environment.home, environment.platform);
   try {
     const legacy = await getLegacyRealClaude(environment.home);
     if (legacy) return legacy;
@@ -58,7 +63,7 @@ async function findRealClaude(environment: Environment): Promise<string> {
 }
 
 export async function install(environment: Environment): Promise<void> {
-  const paths = klauxyPaths(environment.home);
+  const paths = klauxyPaths(environment.home, environment.platform);
 
   // Copy legacy data to canonical paths before staging anything new, so a
   // failure part way through never loses history or config.
@@ -87,25 +92,26 @@ export async function install(environment: Environment): Promise<void> {
     stdout: paths.proxyLog,
     stderr: paths.proxyErrorLog,
     platform: environment.platform,
+    ...(environment.run === undefined ? {} : { run: environment.run }),
   });
 
   // Only route Claude through the proxy once it answers, and only remove legacy
   // artifacts once the new service is proven healthy.
-  await waitForProxy();
+  await (environment.waitForProxy ?? waitForProxy)();
   await installClaudeRouting(paths.claudeSettings, paths.claudeSettingsBackup, proxyBaseUrl());
   await removeLegacyShims(environment.home);
   await removeLegacyLaunchAgent(environment.home);
 }
 
 export async function uninstall(environment: Environment): Promise<void> {
-  const paths = klauxyPaths(environment.home);
+  const paths = klauxyPaths(environment.home, environment.platform);
   await uninstallClaudeRouting(paths.claudeSettings, paths.claudeSettingsBackup, proxyBaseUrl());
-  await uninstallProxyService(paths.serviceFile, environment.platform);
+  await uninstallProxyService(paths.serviceFile, environment.platform, environment.run);
   await uninstallShim({ home: environment.home, rcFiles: await shellTargets(environment.home) });
 }
 
 export async function doctor(environment: Environment): Promise<DoctorResult> {
-  const paths = klauxyPaths(environment.home);
+  const paths = klauxyPaths(environment.home, environment.platform);
   const config = await loadConfig(paths.config);
 
   let claude = "not found";

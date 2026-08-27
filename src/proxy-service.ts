@@ -14,6 +14,18 @@ export const PROXY_PORT = 18789;
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Runs one supervisor command.
+ *
+ * Injectable so install and uninstall can be verified without registering a real
+ * LaunchAgent or systemd unit on the machine running the tests.
+ */
+export type RunCommand = (command: string, args: string[]) => Promise<void>;
+
+const runCommand: RunCommand = async (command, args) => {
+  await execFileAsync(command, args);
+};
+
 function uid(): number {
   return process.getuid?.() ?? 0;
 }
@@ -28,9 +40,9 @@ export function proxyBaseUrl(
   return `http://${address.host}:${address.port}`;
 }
 
-async function ignoreFailure(command: string, args: string[]): Promise<void> {
+async function ignoreFailure(run: RunCommand, command: string, args: string[]): Promise<void> {
   try {
-    await execFileAsync(command, args);
+    await run(command, args);
   } catch {
     // bootout is idempotent: a missing prior service is expected.
   }
@@ -62,6 +74,10 @@ export async function installProxyService(options: {
   stdout: string;
   stderr: string;
   platform?: NodeJS.Platform;
+  /** Overrides command execution; used by tests. */
+  run?: RunCommand;
+  /** Delay between activation retries; shortened by tests. */
+  retryDelayMs?: number;
 }): Promise<void> {
   await mkdir(dirname(options.path), { recursive: true, mode: 0o700 });
   await mkdir(dirname(options.stdout), { recursive: true, mode: 0o700 });
@@ -71,12 +87,14 @@ export async function installProxyService(options: {
   if (supervisor === undefined) {
     throw new Error(`Klauxy cannot supervise a background service on ${platform}`);
   }
+  const run = options.run ?? runCommand;
+  const delayMs = options.retryDelayMs ?? 250;
 
   await writeFile(options.path, supervisor.definition(options), { mode: 0o600 });
 
   // Clear any previous registration first so activation is idempotent.
   for (const step of supervisor.deactivate(uid())) {
-    await ignoreFailure(step.command, step.args);
+    await ignoreFailure(run, step.command, step.args);
   }
 
   const [first, ...rest] = supervisor.activate(options.path, uid());
@@ -85,31 +103,35 @@ export async function installProxyService(options: {
     // so it is the one worth retrying.
     await retryCommand(
       async () => {
-        await execFileAsync(first.command, first.args);
+        await run(first.command, first.args);
       },
-      () => new Promise((resolve) => setTimeout(resolve, 250)),
+      () => new Promise((resolve) => setTimeout(resolve, delayMs)),
       20,
     );
   }
   for (const step of rest) {
-    await execFileAsync(step.command, step.args);
+    await run(step.command, step.args);
   }
 }
 
 export async function uninstallProxyService(
   path: string,
   platform: NodeJS.Platform = process.platform,
+  run: RunCommand | undefined = runCommand,
 ): Promise<void> {
   const supervisor = supervisorFor(platform);
   for (const step of supervisor?.deactivate(uid()) ?? []) {
-    await ignoreFailure(step.command, step.args);
+    await ignoreFailure(run ?? runCommand, step.command, step.args);
   }
   await rm(path, { force: true });
 }
 
-export async function uninstallLegacyProxyService(home: string): Promise<void> {
+export async function uninstallLegacyProxyService(
+  home: string,
+  run: RunCommand = runCommand,
+): Promise<void> {
   const label = LEGACY_KAGENT_PROXY_LABEL;
-  await ignoreFailure("launchctl", ["bootout", `${domain()}/${label}`]);
+  await ignoreFailure(run, "launchctl", ["bootout", `${domain()}/${label}`]);
   const plistPath = `${home}/Library/LaunchAgents/com.kagent.proxy.plist`;
   await rm(plistPath, { force: true });
 }
