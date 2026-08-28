@@ -4,8 +4,8 @@
   "description": "Transparent Korean-to-English prompt translation for Claude Code",
   "type": "module",
   "bin": {
-    "klx": "./dist/index.js",
-    "klauxy": "./dist/index.js"
+    "klx": "dist/index.js",
+    "klauxy": "dist/index.js"
   },
   "files": [
     "dist/**/*.js",
@@ -35,8 +35,7 @@
     "linux"
   ],
   "publishConfig": {
-    "access": "public",
-    "provenance": true
+    "access": "public"
   },
   "scripts": {
     "build": "tsc && chmod +x dist/index.js",

@@ -40,7 +40,9 @@ jobs:
         run: npm run verify:package
 
       - name: Publish to npm
-        run: npm publish
+        # Provenance is set here rather than in publishConfig, because it only
+        # works in CI with an OIDC token and breaks a local publish.
+        run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
