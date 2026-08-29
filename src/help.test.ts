@@ -66,6 +66,16 @@ describe("help output", () => {
     expect(text).toContain("Configure");
   });
 
+  it("prints each heading once so groups are not interleaved", () => {
+    // A command listed out of group order used to split its group and repeat
+    // the heading, which reads as two separate sections of the same name.
+    const lines = renderHelp(plainStyle, "1.2.3");
+
+    for (const heading of ["Setup", "Control", "Inspect", "Configure"]) {
+      expect(lines.filter((line) => line === heading)).toHaveLength(1);
+    }
+  });
+
   it("emits no escape codes under the plain style", () => {
     const text = renderHelp(plainStyle, "1.2.3").join("\n");
 

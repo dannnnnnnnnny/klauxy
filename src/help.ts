@@ -26,16 +26,16 @@ export const COMMANDS: readonly CommandDoc[] = [
   { name: "off", summary: "stop translating", group: "control" },
   { name: "status", summary: "show whether translation is on", group: "control" },
   {
-    name: "try",
-    args: "[text]",
-    summary: "translate one sample to check the setup",
-    group: "inspect",
-  },
-  {
     name: "provider",
     args: "[<id>]",
     summary: "list or switch translation provider",
     group: "control",
+  },
+  {
+    name: "try",
+    args: "[text]",
+    summary: "translate one sample to check the setup",
+    group: "inspect",
   },
   {
     name: "history",
