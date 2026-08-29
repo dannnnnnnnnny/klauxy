@@ -1,7 +1,7 @@
 #!/bin/sh
 # Klauxy installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/dannnnnnnnnny/klauxy/feat/claude-mvp/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/dannnnnnnnnny/klauxy/HEAD/install.sh | sh
 #
 # Pin a version with KLAUXY_VERSION:
 #   curl -fsSL .../install.sh | KLAUXY_VERSION=0.1.0 sh
